@@ -3,6 +3,7 @@ import Cart from '../cart/cart.model.js';
 import Book from '../books/book.model.js';
 import AppError from '../../utils/AppError.js';
 import catchAsync from '../../utils/catchAsync.js';
+import notificationService from '../notifications/notification.service.js';
 
 // Hoàn lại tồn kho cho danh sách item (dùng khi rollback hoặc hủy đơn)
 const restoreStock = (items) =>
@@ -52,6 +53,11 @@ export const createOrder = catchAsync(async (req, res) => {
     // Đặt hàng thành công => làm trống giỏ
     cart.items = [];
     await cart.save();
+
+    // Gửi thông báo cho khách hàng và tất cả admin (bất đồng bộ không chặn response)
+    notificationService.notifyOrderPlaced({ order, user: req.user }).catch((err) => {
+      console.error('❌ Lỗi gửi thông báo đơn hàng:', err.message);
+    });
 
     res.status(201).json({ status: 'success', data: { order } });
   } catch (err) {

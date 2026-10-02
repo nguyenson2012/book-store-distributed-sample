@@ -3,6 +3,7 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import api from '../services/api';
 import { clearCart } from '../store/cartSlice';
+import { fetchNotifications, fetchUnreadCount } from '../store/notificationSlice';
 import { errMsg, formatPrice } from '../utils/helpers';
 
 export default function Checkout() {
@@ -34,6 +35,8 @@ export default function Checkout() {
     try {
       await api.post('/orders', { shippingAddress: address, paymentMethod });
       dispatch(clearCart()); // backend đã làm trống giỏ
+      dispatch(fetchNotifications());
+      dispatch(fetchUnreadCount());
       navigate('/profile');
     } catch (err) {
       setError(errMsg(err)); // VD: "Một số sách đã hết hàng..."

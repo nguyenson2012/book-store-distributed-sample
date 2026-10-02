@@ -2,6 +2,8 @@ import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { logout } from '../store/authSlice';
 import { clearCart } from '../store/cartSlice';
+import { clearNotifications } from '../store/notificationSlice';
+import NotificationBell from './NotificationBell';
 
 export default function Navbar() {
   const { user } = useSelector((s) => s.auth);
@@ -12,6 +14,7 @@ export default function Navbar() {
   const handleLogout = async () => {
     await dispatch(logout());
     dispatch(clearCart());
+    dispatch(clearNotifications());
     navigate('/');
   };
 
@@ -36,6 +39,7 @@ export default function Navbar() {
             <>
               {user.role === 'admin' && <NavLink to="/admin" className={link}>Quản trị</NavLink>}
               <NavLink to="/profile" className={link}>{user.name}</NavLink>
+              <NotificationBell />
               <button onClick={handleLogout} className="btn-outline">Đăng xuất</button>
             </>
           ) : (

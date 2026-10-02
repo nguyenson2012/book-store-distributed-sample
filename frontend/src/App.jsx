@@ -3,6 +3,7 @@ import { Outlet, Route, Routes } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { bootstrapAuth } from './store/authSlice';
 import { clearCart, fetchCart } from './store/cartSlice';
+import { fetchNotifications, fetchUnreadCount } from './store/notificationSlice';
 
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
@@ -36,6 +37,19 @@ export default function App() {
   useEffect(() => {
     if (user) dispatch(fetchCart());
     else dispatch(clearCart());
+  }, [user, dispatch]);
+
+  // Đồng bộ thông báo theo trạng thái đăng nhập + kiểm tra định kỳ
+  useEffect(() => {
+    if (!user) return;
+    dispatch(fetchUnreadCount());
+    dispatch(fetchNotifications());
+
+    const interval = setInterval(() => {
+      dispatch(fetchUnreadCount());
+    }, 20000);
+
+    return () => clearInterval(interval);
   }, [user, dispatch]);
 
   return (
