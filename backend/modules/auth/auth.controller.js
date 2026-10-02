@@ -18,8 +18,18 @@ const sendAuth = (user, statusCode, res) => {
 };
 
 export const register = catchAsync(async (req, res) => {
-  const user = await authService.registerUser(req.body);
-  sendAuth(user, 201, res);
+  const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+  await authService.registerUser(req.body, clientUrl);
+  res.status(201).json({
+    status: 'success',
+    message: 'Tài khoản đã được tạo! Vui lòng kiểm tra email để xác nhận tài khoản.',
+  });
+});
+
+export const verifyEmail = catchAsync(async (req, res) => {
+  const { token } = req.query;
+  const user = await authService.verifyEmail(token);
+  sendAuth(user, 200, res);
 });
 
 export const login = catchAsync(async (req, res) => {

@@ -26,7 +26,27 @@ const authThunk = (name, url) =>
   });
 
 export const login = authThunk('login', '/auth/login');
-export const register = authThunk('register', '/auth/register');
+
+// Register giờ chỉ trả về message (cần xác nhận email trước)
+export const register = createAsyncThunk('auth/register', async (body, { rejectWithValue }) => {
+  try {
+    const { data } = await api.post('/auth/register', body);
+    return { message: data.message }; // không có user
+  } catch (e) {
+    return rejectWithValue(errMsg(e));
+  }
+});
+
+// Xác nhận email với token từ link email
+export const verifyEmail = createAsyncThunk('auth/verifyEmail', async (token, { rejectWithValue }) => {
+  try {
+    const { data } = await api.get(`/auth/verify-email?token=${token}`);
+    setAccessToken(data.accessToken);
+    return data.data.user;
+  } catch (e) {
+    return rejectWithValue(errMsg(e));
+  }
+});
 
 export const logout = createAsyncThunk('auth/logout', async () => {
   await api.post('/auth/logout').catch(() => {});
@@ -44,19 +64,33 @@ export const updateProfile = createAsyncThunk('auth/updateProfile', async (body,
 
 const slice = createSlice({
   name: 'auth',
-  initialState: { user: null, initialized: false, loading: false, error: null },
-  reducers: { clearError: (s) => { s.error = null; } },
+  initialState: { user: null, initialized: false, loading: false, error: null, registerMessage: null },
+  reducers: {
+    clearError: (s) => { s.error = null; },
+    clearRegisterMessage: (s) => { s.registerMessage = null; },
+  },
   extraReducers: (b) => {
     b.addCase(bootstrapAuth.fulfilled, (s, a) => { s.user = a.payload; s.initialized = true; });
-    for (const t of [login, register]) {
-      b.addCase(t.pending, (s) => { s.loading = true; s.error = null; })
-        .addCase(t.fulfilled, (s, a) => { s.loading = false; s.user = a.payload; })
-        .addCase(t.rejected, (s, a) => { s.loading = false; s.error = a.payload; });
-    }
+
+    // login
+    b.addCase(login.pending, (s) => { s.loading = true; s.error = null; })
+      .addCase(login.fulfilled, (s, a) => { s.loading = false; s.user = a.payload; })
+      .addCase(login.rejected, (s, a) => { s.loading = false; s.error = a.payload; });
+
+    // register → chỉ set message, không set user
+    b.addCase(register.pending, (s) => { s.loading = true; s.error = null; s.registerMessage = null; })
+      .addCase(register.fulfilled, (s, a) => { s.loading = false; s.registerMessage = a.payload.message; })
+      .addCase(register.rejected, (s, a) => { s.loading = false; s.error = a.payload; });
+
+    // verifyEmail → đăng nhập luôn sau khi xác nhận
+    b.addCase(verifyEmail.pending, (s) => { s.loading = true; s.error = null; })
+      .addCase(verifyEmail.fulfilled, (s, a) => { s.loading = false; s.user = a.payload; })
+      .addCase(verifyEmail.rejected, (s, a) => { s.loading = false; s.error = a.payload; });
+
     b.addCase(logout.fulfilled, (s) => { s.user = null; })
       .addCase(updateProfile.fulfilled, (s, a) => { s.user = a.payload; });
   },
 });
 
-export const { clearError } = slice.actions;
+export const { clearError, clearRegisterMessage } = slice.actions;
 export default slice.reducer;

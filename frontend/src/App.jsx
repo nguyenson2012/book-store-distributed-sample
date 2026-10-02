@@ -15,6 +15,7 @@ import Checkout from './pages/Checkout';
 import Auth from './pages/Auth';
 import Profile from './pages/Profile';
 import AdminDashboard from './pages/AdminDashboard';
+import VerifyEmail from './pages/VerifyEmail';
 
 function Layout() {
   return (
@@ -60,6 +61,7 @@ export default function App() {
         <Route path="/cart" element={<Cart />} />
         <Route path="/login" element={<Auth mode="login" />} />
         <Route path="/register" element={<Auth mode="register" />} />
+        <Route path="/verify-email" element={<VerifyEmail />} />
 
         <Route element={<ProtectedRoute />}>
           <Route path="/checkout" element={<Checkout />} />
