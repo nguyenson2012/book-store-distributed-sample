@@ -95,7 +95,7 @@ jobs:
             --memory 512Mi \
             --cpu 1 \
             --port 8080 \
-            --set-env-vars "NODE_ENV=production,PORT=8080,MONGO_URI=${{ secrets.MONGO_URI }},JWT_ACCESS_SECRET=${{ secrets.JWT_ACCESS_SECRET }},JWT_REFRESH_SECRET=${{ secrets.JWT_REFRESH_SECRET }},JWT_ACCESS_EXPIRES=15m,JWT_REFRESH_EXPIRES=7d"
+            --set-env-vars "NODE_ENV=production,MONGO_URI=${{ secrets.MONGO_URI }},JWT_ACCESS_SECRET=${{ secrets.JWT_ACCESS_SECRET }},JWT_REFRESH_SECRET=${{ secrets.JWT_REFRESH_SECRET }},JWT_ACCESS_EXPIRES=15m,JWT_REFRESH_EXPIRES=7d"
 
           URL=$(gcloud run services describe bookstore-backend --region ${{ env.REGION }} --format='value(status.url)')
           echo "url=$URL" >> "$GITHUB_OUTPUT"
