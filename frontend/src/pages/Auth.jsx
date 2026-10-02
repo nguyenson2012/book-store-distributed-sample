@@ -1,17 +1,20 @@
 import { useEffect, useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
-import { clearError, login, register } from '../store/authSlice';
+import { clearError, clearRegisterMessage, login, register } from '../store/authSlice';
 
 export default function Auth({ mode }) {
   const isLogin = mode === 'login';
-  const { user, loading, error } = useSelector((s) => s.auth);
+  const { user, loading, error, registerMessage } = useSelector((s) => s.auth);
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const location = useLocation();
   const [form, setForm] = useState({ name: '', email: '', password: '' });
 
-  useEffect(() => { dispatch(clearError()); }, [mode, dispatch]);
+  useEffect(() => {
+    dispatch(clearError());
+    dispatch(clearRegisterMessage());
+  }, [mode, dispatch]);
 
   // Đã đăng nhập thì quay về trang trước đó (hoặc trang chủ)
   if (user) return <Navigate to={location.state?.from?.pathname || '/'} replace />;
@@ -20,10 +23,34 @@ export default function Auth({ mode }) {
 
   const submit = async (e) => {
     e.preventDefault();
-    const action = isLogin ? login({ email: form.email, password: form.password }) : register(form);
-    const res = await dispatch(action);
-    if (!res.error) navigate(location.state?.from?.pathname || '/', { replace: true });
+    if (isLogin) {
+      const res = await dispatch(login({ email: form.email, password: form.password }));
+      if (!res.error) navigate(location.state?.from?.pathname || '/', { replace: true });
+    } else {
+      dispatch(register(form)); // không navigate, chờ hiện message
+    }
   };
+
+  // Hiện thông báo kiểm tra email sau khi đăng ký thành công
+  if (!isLogin && registerMessage) {
+    return (
+      <div className="mx-auto max-w-md px-4 py-12">
+        <div className="card space-y-4 text-center">
+          <div style={{ fontSize: '3rem' }}>📧</div>
+          <h1 className="text-2xl font-bold">Kiểm tra email của bạn!</h1>
+          <p className="text-slate-500">{registerMessage}</p>
+          <p className="text-sm text-slate-400">
+            Không thấy email? Kiểm tra thư rác hoặc{' '}
+            <Link to="/register" className="text-indigo-600 hover:underline"
+              onClick={() => dispatch(clearRegisterMessage())}>
+              thử lại
+            </Link>.
+          </p>
+          <Link to="/login" className="btn block w-full">Quay lại Đăng nhập</Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-md px-4 py-12">

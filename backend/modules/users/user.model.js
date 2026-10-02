@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 
 const addressSchema = new mongoose.Schema({
   fullName: { type: String, required: true },
@@ -27,6 +28,9 @@ const userSchema = new mongoose.Schema(
     },
     role: { type: String, enum: ['customer', 'admin'], default: 'customer' },
     addresses: [addressSchema],
+    emailVerified: { type: Boolean, default: false },
+    emailVerifyToken: { type: String, select: false },
+    emailVerifyExpires: { type: Date, select: false },
   },
   { timestamps: true }
 );
@@ -39,6 +43,14 @@ userSchema.pre('save', async function () {
 
 userSchema.methods.comparePassword = function (candidate) {
   return bcrypt.compare(candidate, this.password);
+};
+
+/** Tạo token xác nhận email (raw) và lưu hash vào DB */
+userSchema.methods.createEmailVerifyToken = function () {
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  this.emailVerifyToken = crypto.createHash('sha256').update(rawToken).digest('hex');
+  this.emailVerifyExpires = Date.now() + 24 * 60 * 60 * 1000; // 24 giờ
+  return rawToken;
 };
 
 export default mongoose.model('User', userSchema);
