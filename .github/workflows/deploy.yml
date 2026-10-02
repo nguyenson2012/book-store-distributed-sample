@@ -1,0 +1,166 @@
+name: CI/CD Pipeline - Deploy to Google Cloud Run (Free Tier)
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch: # Cho phép trigger thủ công từ GitHub UI
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  # us-central1 được áp dụng chính sách Always Free (bao gồm 1GB egress free)
+  REGION: us-central1
+  ARTIFACT_REPO: bookstore
+
+jobs:
+  # =========================================================================
+  # 1. CI JOB: Test & Lint
+  # =========================================================================
+  test:
+    name: Code Quality & Build Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Test Frontend Build
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+      - name: Verify Backend Dependencies
+        run: |
+          cd backend
+          npm ci --omit=dev
+
+  # =========================================================================
+  # 2. DEPLOY BACKEND TO CLOUD RUN
+  # =========================================================================
+  deploy-backend:
+    name: Build & Deploy Backend
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      backend_url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and Push Backend Image
+        run: |
+          IMAGE_TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/backend:${{ github.sha }}"
+          LATEST_TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/backend:latest"
+          
+          docker build -t "$IMAGE_TAG" -t "$LATEST_TAG" ./backend
+          docker push "$IMAGE_TAG"
+          docker push "$LATEST_TAG"
+
+      - name: Deploy to Cloud Run (Free Tier Optimizations)
+        id: deploy
+        run: |
+          IMAGE_TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/backend:${{ github.sha }}"
+          
+          # Deploy lên Cloud Run với cấu hình tối ưu Free Tier:
+          # - min-instances: 0 (Scale về 0 khi không có traffic => $0 khi rảnh)
+          # - max-instances: 2 (Giới hạn tối đa tránh vượt hạn ngạch)
+          # - memory: 512Mi, cpu: 1 (Đủ nhẹ và tối ưu RAM)
+          gcloud run deploy bookstore-backend \
+            --image "$IMAGE_TAG" \
+            --region ${{ env.REGION }} \
+            --platform managed \
+            --allow-unauthenticated \
+            --min-instances 0 \
+            --max-instances 2 \
+            --memory 512Mi \
+            --cpu 1 \
+            --port 8080 \
+            --set-env-vars "NODE_ENV=production,PORT=8080,MONGO_URI=${{ secrets.MONGO_URI }},JWT_ACCESS_SECRET=${{ secrets.JWT_ACCESS_SECRET }},JWT_REFRESH_SECRET=${{ secrets.JWT_REFRESH_SECRET }},JWT_ACCESS_EXPIRES=15m,JWT_REFRESH_EXPIRES=7d"
+
+          URL=$(gcloud run services describe bookstore-backend --region ${{ env.REGION }} --format='value(status.url)')
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Backend URL: $URL"
+
+  # =========================================================================
+  # 3. DEPLOY FRONTEND TO CLOUD RUN
+  # =========================================================================
+  deploy-frontend:
+    name: Build & Deploy Frontend
+    needs: deploy-backend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and Push Frontend Image
+        env:
+          BACKEND_URL: ${{ needs.deploy-backend.outputs.backend_url }}
+        run: |
+          IMAGE_TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/frontend:${{ github.sha }}"
+          LATEST_TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/frontend:latest"
+          
+          # Inject BACKEND_URL vào Vite build arg
+          docker build \
+            --build-arg VITE_API_URL="${BACKEND_URL}/api/v1" \
+            -t "$IMAGE_TAG" \
+            -t "$LATEST_TAG" \
+            ./frontend
+          
+          docker push "$IMAGE_TAG"
+          docker push "$LATEST_TAG"
+
+      - name: Deploy Frontend to Cloud Run (Free Tier Optimizations)
+        run: |
+          IMAGE_TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/frontend:${{ github.sha }}"
+          
+          gcloud run deploy bookstore-frontend \
+            --image "$IMAGE_TAG" \
+            --region ${{ env.REGION }} \
+            --platform managed \
+            --allow-unauthenticated \
+            --min-instances 0 \
+            --max-instances 2 \
+            --memory 256Mi \
+            --cpu 1 \
+            --port 8080
+
+          FRONTEND_URL=$(gcloud run services describe bookstore-frontend --region ${{ env.REGION }} --format='value(status.url)')
+          echo "Frontend URL: $FRONTEND_URL"
+
+          # Tự động cập nhật CLIENT_URL cho Backend để cho phép CORS an toàn
+          echo "Updating Backend CORS with Frontend URL..."
+          gcloud run services update bookstore-backend \
+            --region ${{ env.REGION }} \
+            --update-env-vars CLIENT_URL="$FRONTEND_URL"
