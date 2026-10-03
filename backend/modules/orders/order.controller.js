@@ -100,6 +100,14 @@ export const updateOrderStatus = catchAsync(async (req, res) => {
 
   order.orderStatus = status;
   await order.save();
+
+  // Khi order được giao thành công => gửi thông báo in-app và email cho khách hàng
+  if (status === 'Delivered') {
+    notificationService.notifyOrderDelivered({ order }).catch((err) => {
+      console.error('❌ Lỗi gửi thông báo/email khi giao hàng thành công:', err.message);
+    });
+  }
+
   res.json({ status: 'success', data: { order } });
 });
 

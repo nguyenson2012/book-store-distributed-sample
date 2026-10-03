@@ -20,7 +20,7 @@ const notificationSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ['ORDER_PLACED', 'ADMIN_ORDER_ALERT', 'ORDER_STATUS_CHANGED', 'SYSTEM'],
+      enum: ['ORDER_PLACED', 'ADMIN_ORDER_ALERT', 'ORDER_STATUS_CHANGED', 'ORDER_DELIVERED', 'SYSTEM'],
       default: 'SYSTEM',
     },
     data: {

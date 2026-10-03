@@ -1,5 +1,6 @@
 import Notification from './notification.model.js';
 import User from '../users/user.model.js';
+import { sendOrderDeliveredEmail } from '../../utils/email.js';
 
 class NotificationService {
   /**
@@ -74,6 +75,65 @@ class NotificationService {
   }
 
   /**
+   * Thông báo khi đơn hàng được giao thành công:
+   * 1. Tạo thông báo in-app cho khách hàng
+   * 2. Gửi email thông báo giao hàng thành công tới khách hàng
+   */
+  async notifyOrderDelivered({ order, user }) {
+    let recipientUser = user;
+    if (!recipientUser && order.userId) {
+      if (typeof order.userId === 'object' && order.userId.email) {
+        recipientUser = order.userId;
+      } else {
+        recipientUser = await User.findById(order.userId);
+      }
+    }
+
+    if (!recipientUser) {
+      console.warn(`⚠️ [NotificationService] Không tìm thấy thông tin user cho đơn hàng #${order._id || order.id}`);
+      return null;
+    }
+
+    const orderId = order._id || order.id;
+    const formattedAmount = Number(order.totalAmount || 0).toLocaleString('vi-VN');
+
+    // 1. Tạo thông báo in-app
+    const userNotification = await this.createNotification({
+      recipient: recipientUser._id || recipientUser.id,
+      title: 'Đơn hàng đã được giao thành công 🎉',
+      message: `Đơn hàng #${orderId} (tổng tiền: ${formattedAmount}đ) của bạn đã được giao thành công. Cảm ơn bạn đã mua sắm tại BookStore!`,
+      type: 'ORDER_DELIVERED',
+      data: {
+        orderId,
+        totalAmount: order.totalAmount,
+        status: 'Delivered',
+      },
+    });
+
+    // 2. Gửi email xác nhận giao hàng
+    let emailResult = null;
+    if (recipientUser.email) {
+      try {
+        emailResult = await sendOrderDeliveredEmail({
+          toEmail: recipientUser.email,
+          userName: recipientUser.name || recipientUser.shippingAddress?.fullName || 'Quý khách',
+          order,
+        });
+        console.log(`📧 [NotificationService] Đã gửi email giao hàng thành công đơn #${orderId} tới: ${recipientUser.email}`);
+      } catch (err) {
+        console.error(`❌ [NotificationService] Lỗi gửi email giao hàng cho đơn #${orderId}:`, err.message);
+      }
+    } else {
+      console.warn(`⚠️ [NotificationService] User #${recipientUser._id || recipientUser.id} không có email để gửi`);
+    }
+
+    return {
+      userNotification,
+      emailResult,
+    };
+  }
+
+  /**
    * Lấy danh sách thông báo của user với phân trang và lọc trạng thái đã đọc
    */
   async getUserNotifications(userId, { page = 1, limit = 20, isRead } = {}) {
@@ -136,4 +196,6 @@ class NotificationService {
 }
 
 export const notificationService = new NotificationService();
+export { sendOrderDeliveredEmail };
 export default notificationService;
+
