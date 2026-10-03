@@ -49,7 +49,7 @@ export default function NotificationBell() {
     // Chuyển hướng tới trang phù hợp
     if (notif.type === 'ADMIN_ORDER_ALERT') {
       navigate('/admin');
-    } else if (notif.type === 'ORDER_PLACED') {
+    } else if (notif.type === 'ORDER_PLACED' || notif.type === 'ORDER_DELIVERED') {
       navigate('/profile');
     }
   };
@@ -184,14 +184,20 @@ export default function NotificationBell() {
                     className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
                       item.type === 'ADMIN_ORDER_ALERT'
                         ? 'bg-amber-100 text-amber-600'
-                        : item.type === 'ORDER_PLACED'
+                        : item.type === 'ORDER_DELIVERED'
                         ? 'bg-emerald-100 text-emerald-600'
+                        : item.type === 'ORDER_PLACED'
+                        ? 'bg-blue-100 text-blue-600'
                         : 'bg-indigo-100 text-indigo-600'
                     }`}
                   >
                     {item.type === 'ADMIN_ORDER_ALERT' ? (
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="w-5 h-5">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                      </svg>
+                    ) : item.type === 'ORDER_DELIVERED' ? (
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="w-5 h-5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.948c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75" />
                       </svg>
                     ) : (
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="w-5 h-5">
