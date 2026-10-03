@@ -1,6 +1,5 @@
 import Notification from './notification.model.js';
 import User from '../users/user.model.js';
-import { sendOrderDeliveredEmail } from '../../utils/email.js';
 
 class NotificationService {
   /**
@@ -76,8 +75,7 @@ class NotificationService {
 
   /**
    * Thông báo khi đơn hàng được giao thành công:
-   * 1. Tạo thông báo in-app cho khách hàng
-   * 2. Gửi email thông báo giao hàng thành công tới khách hàng
+   * Tạo thông báo in-app cho khách hàng (việc gửi email do notification-service xử lý qua RabbitMQ)
    */
   async notifyOrderDelivered({ order, user }) {
     let recipientUser = user;
@@ -97,7 +95,7 @@ class NotificationService {
     const orderId = order._id || order.id;
     const formattedAmount = Number(order.totalAmount || 0).toLocaleString('vi-VN');
 
-    // 1. Tạo thông báo in-app
+    // Tạo thông báo in-app
     const userNotification = await this.createNotification({
       recipient: recipientUser._id || recipientUser.id,
       title: 'Đơn hàng đã được giao thành công 🎉',
@@ -110,27 +108,7 @@ class NotificationService {
       },
     });
 
-    // 2. Gửi email xác nhận giao hàng
-    let emailResult = null;
-    if (recipientUser.email) {
-      try {
-        emailResult = await sendOrderDeliveredEmail({
-          toEmail: recipientUser.email,
-          userName: recipientUser.name || recipientUser.shippingAddress?.fullName || 'Quý khách',
-          order,
-        });
-        console.log(`📧 [NotificationService] Đã gửi email giao hàng thành công đơn #${orderId} tới: ${recipientUser.email}`);
-      } catch (err) {
-        console.error(`❌ [NotificationService] Lỗi gửi email giao hàng cho đơn #${orderId}:`, err.message);
-      }
-    } else {
-      console.warn(`⚠️ [NotificationService] User #${recipientUser._id || recipientUser.id} không có email để gửi`);
-    }
-
-    return {
-      userNotification,
-      emailResult,
-    };
+    return { userNotification };
   }
 
   /**

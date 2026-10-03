@@ -12,76 +12,98 @@ const ROUTING_KEYS = ['order.placed', 'order.delivered'];
  */
 export const startConsumer = async (handlers) => {
   const rabbitUrl = process.env.RABBITMQ_URL || 'amqp://localhost';
+  let reconnectTimer = null;
 
-  let connection;
-  try {
-    connection = await amqplib.connect(rabbitUrl);
-  } catch (err) {
-    console.error('❌ [Consumer] Không kết nối được RabbitMQ:', err.message);
-    console.error('   Hãy chắc chắn RabbitMQ đang chạy. Xem README.md để biết cách khởi động.');
-    throw err;
-  }
+  const connect = async () => {
+    let connection;
+    let channel;
 
-  const channel = await connection.createChannel();
-
-  // Topic exchange: cho phép route event linh hoạt theo pattern
-  await channel.assertExchange(EXCHANGE_NAME, 'topic', { durable: true });
-
-  // Queue bền vững: message không mất khi service restart
-  const { queue } = await channel.assertQueue(QUEUE_NAME, {
-    durable: true,
-    arguments: {
-      // Dead-letter queue để xem messages bị lỗi (optional)
-      // 'x-dead-letter-exchange': 'bookstore_dlx',
-    },
-  });
-
-  // Bind tất cả routing key cần xử lý
-  for (const key of ROUTING_KEYS) {
-    await channel.bindQueue(queue, EXCHANGE_NAME, key);
-  }
-
-  // Xử lý tuần tự 1 message tại 1 thời điểm (tránh overload)
-  channel.prefetch(1);
-
-  console.log(`🐰 [Consumer] Đang lắng nghe queue: "${QUEUE_NAME}"`);
-  console.log(`   Routing keys: ${ROUTING_KEYS.join(', ')}`);
-
-  channel.consume(queue, async (msg) => {
-    if (!msg) return;
-
-    let routingKey = 'unknown';
     try {
-      const parsed = JSON.parse(msg.content.toString());
-      routingKey = parsed.routingKey;
-      const { payload, timestamp } = parsed;
+      connection = await amqplib.connect(rabbitUrl, { heartbeat: 30 });
 
-      console.log(`\n📥 [Consumer] Event nhận được: ${routingKey} (sent at ${timestamp})`);
+      connection.on('error', (err) => {
+        console.error('❌ [Consumer] RabbitMQ connection error:', err.message);
+      });
 
-      const handler = handlers[routingKey];
-      if (handler) {
-        await handler(payload);
-      } else {
-        console.warn(`⚠️ [Consumer] Không có handler cho "${routingKey}", bỏ qua.`);
+      connection.on('close', () => {
+        console.warn('⚠️  [Consumer] Kết nối RabbitMQ bị đóng. Đang thử kết nối lại sau 5s...');
+        if (!reconnectTimer) {
+          reconnectTimer = setTimeout(() => {
+            reconnectTimer = null;
+            connect();
+          }, 5000);
+        }
+      });
+
+      channel = await connection.createChannel();
+
+      // Topic exchange: cho phép route event linh hoạt theo pattern
+      await channel.assertExchange(EXCHANGE_NAME, 'topic', { durable: true });
+
+      // Queue bền vững: message không mất khi service restart
+      const { queue } = await channel.assertQueue(QUEUE_NAME, {
+        durable: true,
+      });
+
+      // Bind tất cả routing key cần xử lý
+      for (const key of ROUTING_KEYS) {
+        await channel.bindQueue(queue, EXCHANGE_NAME, key);
       }
 
-      // Xác nhận đã xử lý thành công → RabbitMQ xóa message khỏi queue
-      channel.ack(msg);
+      // Xử lý tuần tự 1 message tại 1 thời điểm (tránh overload)
+      channel.prefetch(1);
+
+      console.log(`🐰 [Consumer] Đang lắng nghe queue: "${QUEUE_NAME}"`);
+      console.log(`   Routing keys: ${ROUTING_KEYS.join(', ')}`);
+
+      channel.consume(queue, async (msg) => {
+        if (!msg) return;
+
+        let routingKey = 'unknown';
+        try {
+          const parsed = JSON.parse(msg.content.toString());
+          routingKey = parsed.routingKey;
+          const { payload, timestamp } = parsed;
+
+          console.log(`\n📥 [Consumer] Event nhận được: ${routingKey} (sent at ${timestamp})`);
+
+          const handler = handlers[routingKey];
+          if (handler) {
+            await handler(payload);
+          } else {
+            console.warn(`⚠️ [Consumer] Không có handler cho "${routingKey}", bỏ qua.`);
+          }
+
+          // Xác nhận đã xử lý thành công → RabbitMQ xóa message khỏi queue
+          channel.ack(msg);
+        } catch (err) {
+          console.error(`❌ [Consumer] Lỗi xử lý event "${routingKey}":`, err.message);
+          channel.nack(msg, false, false); // false = không requeue
+        }
+      });
+
+      // Graceful shutdown
+      process.once('SIGINT', async () => {
+        console.log('\n🛑 [Consumer] Đang đóng kết nối RabbitMQ...');
+        try {
+          if (channel) await channel.close();
+          if (connection) await connection.close();
+        } catch (_) {}
+        process.exit(0);
+      });
+
+      return channel;
     } catch (err) {
-      console.error(`❌ [Consumer] Lỗi xử lý event "${routingKey}":`, err.message);
-      // Nack + requeue=true: đẩy lại queue để thử lại
-      // Trong production nên dùng dead-letter queue để tránh infinite loop
-      channel.nack(msg, false, false); // false = không requeue → tránh loop khi lỗi liên tục
+      console.error('❌ [Consumer] Không kết nối được RabbitMQ:', err.message);
+      console.error('   Thử kết nối lại sau 5s...');
+      if (!reconnectTimer) {
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = null;
+          connect();
+        }, 5000);
+      }
     }
-  });
+  };
 
-  // Graceful shutdown
-  process.on('SIGINT', async () => {
-    console.log('\n🛑 [Consumer] Đang đóng kết nối RabbitMQ...');
-    await channel.close();
-    await connection.close();
-    process.exit(0);
-  });
-
-  return channel;
+  await connect();
 };

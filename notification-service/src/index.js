@@ -18,8 +18,8 @@ async function bootstrap() {
   console.log('╚══════════════════════════════════════════╝');
   console.log('');
 
-  // HTTP health check server (bắt buộc cho Cloud Run)
-  const PORT = process.env.PORT || 8080;
+  // HTTP health check server (Cloud Run tự inject PORT=8080, local dùng 8081 tránh xung đột Colima)
+  const PORT = process.env.PORT || 8081;
   http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok', service: 'notification-service' }));
