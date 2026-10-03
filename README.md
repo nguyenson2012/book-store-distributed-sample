@@ -14,7 +14,7 @@ bookstore-monolith/
 │   ├── modules/           # Domain modules (sẵn sàng tách microservice)
 │   │   ├── auth/          # Xác thực — JWT, Refresh Token, Email Verify
 │   │   ├── users/         # Người dùng, địa chỉ giao hàng
-│   │   ├── books/         # Quản lý sách, tìm kiếm
+│   │   ├── books/         # Quản lý sách, tìm kiếm, Flash Sale
 │   │   ├── cart/          # Giỏ hàng
 │   │   ├── orders/        # Đơn hàng, xử lý thanh toán
 │   │   ├── notifications/ # Thông báo người dùng
@@ -26,7 +26,7 @@ bookstore-monolith/
 ├── frontend/              # React 19 + Vite + TailwindCSS 4
 │   └── src/
 │       ├── pages/         # Home, BookDetail, Cart, Checkout, Auth, VerifyEmail, Admin
-│       ├── components/    # Navbar, Footer, BookCard, RouteGuards
+│       ├── components/    # Navbar, Footer, BookCard, FlashSaleSection, RouteGuards
 │       ├── store/         # Redux Toolkit (auth, cart, notification)
 │       ├── services/      # Axios instance + interceptors
 │       └── utils/
@@ -75,16 +75,34 @@ bookstore-monolith/
 ### Khách hàng
 - 🔐 **Xác thực**: Đăng ký / Đăng nhập với JWT Access Token + Refresh Token tự động gia hạn
 - 📧 **Xác nhận email**: Gửi email xác nhận sau đăng ký — tài khoản chỉ hoạt động sau khi click link (token có hiệu lực 24 giờ)
-- 📖 **Duyệt sách**: Xem danh sách, tìm kiếm, xem chi tiết sách
-- 🛒 **Giỏ hàng**: Thêm / xóa / cập nhật số lượng
+- 📖 **Duyệt sách**: Xem danh sách, tìm kiếm theo tên/tác giả, lọc theo danh mục và khoảng giá, sắp xếp
+- ⚡ **Flash Sale**: Section sản phẩm Flash Sale nổi bật ngay trên trang chủ với đồng hồ đếm ngược; badge `-50%` hiển thị trên mỗi thẻ sách
+- 🛒 **Giỏ hàng**: Thêm / xóa / cập nhật số lượng; giá Flash Sale được tính tự động tại thời điểm thêm vào giỏ
 - 💳 **Đặt hàng**: Thanh toán, quản lý địa chỉ giao hàng
 - 🔔 **Thông báo**: Cập nhật trạng thái đơn hàng theo thời gian thực (polling)
 - 👤 **Hồ sơ**: Quản lý thông tin cá nhân, địa chỉ
 
 ### Quản trị viên
-- 📊 **Dashboard**: Thống kê tổng quan doanh thu, đơn hàng
-- 📚 **Quản lý sách**: Thêm / sửa / xóa sản phẩm
-- 📦 **Quản lý đơn hàng**: Cập nhật trạng thái xử lý
+- 📊 **Dashboard**: Thống kê tổng quan đơn hàng, trạng thái xử lý
+- 📚 **Quản lý sách** (nâng cao):
+  - Thêm sách mới với đầy đủ thông tin
+  - **Cập nhật thông tin sách** qua modal chỉnh sửa trực quan (tiêu đề, tác giả, danh mục, giá, mô tả, tồn kho)
+  - **Dán link ảnh bìa sách**: Hỗ trợ paste URL ảnh trực tiếp từ clipboard, xem trước ảnh ngay lập tức, phản hồi trạng thái (hợp lệ / lỗi URL)
+  - Tìm kiếm nhanh sách trong danh sách
+  - Lọc tab "Đang Flash Sale" để quản lý chiến dịch
+  - **Bật / Tắt Flash Sale nhanh** (1 click) — mặc định 24 giờ, giảm 50%
+  - **Cấu hình Flash Sale chi tiết**: Chọn thời lượng nhanh (1h, 6h, 12h, 24h, 3 ngày, 7 ngày) hoặc nhập thời điểm kết thúc cụ thể; preview giá Flash Sale (-50%) ngay trên form
+- 📦 **Quản lý đơn hàng**: Cập nhật trạng thái xử lý (Pending → Processing → Shipped → Delivered)
+
+### Flash Sale System
+- ⚡ Hệ thống Flash Sale hoàn chỉnh từ backend đến frontend:
+  - Schema mở rộng `isFlashSale`, `flashSaleStartDate`, `flashSaleEndDate`, `flashSaleDiscount`
+  - Virtual `isFlashSaleActive` tự động kiểm tra thời gian hiệu lực
+  - Virtual `finalPrice` ưu tiên giá Flash Sale (-50%) nếu đang trong kỳ sale
+  - Giá Flash Sale được tính và chốt tại backend khi thêm vào giỏ — không tin giá từ client
+  - Đồng hồ đếm ngược realtime trên trang chủ và trang chi tiết sách
+  - Flash Sale tự động hết hiệu lực sau thời gian đã cài đặt (không cần tác động thủ công)
+  - Bộ lọc `?flashSale=true` trên trang danh sách sách
 
 ### Bảo mật
 - HttpOnly Cookie cho Refresh Token (chống XSS)
@@ -93,6 +111,7 @@ bookstore-monolith/
 - Role-based access control (customer / admin)
 - Helmet HTTP headers hardening
 - Email verify token được hash SHA-256 trước khi lưu DB (chống lộ token)
+- **Giá sản phẩm luôn lấy từ DB** tại thời điểm đặt hàng (chống gian lận giá từ phía client)
 
 ---
 
@@ -252,11 +271,34 @@ Base URL: `http://localhost:5001/api/v1` (Local) hoặc URL Cloud Run của bạ
 ### Books
 | Method | Endpoint | Mô tả | Auth |
 |---|---|---|---|
-| `GET` | `/books` | Danh sách sách (có phân trang, tìm kiếm) | ❌ |
+| `GET` | `/books` | Danh sách sách (phân trang, tìm kiếm, lọc, `?flashSale=true`) | ❌ |
+| `GET` | `/books/flash-sale` | Danh sách sách đang Flash Sale | ❌ |
 | `GET` | `/books/:id` | Chi tiết sách | ❌ |
 | `POST` | `/books` | Thêm sách mới | 🔒 Admin |
-| `PUT` | `/books/:id` | Cập nhật sách | 🔒 Admin |
+| `PATCH` | `/books/:id` | Cập nhật thông tin sách (bao gồm ảnh bìa, Flash Sale) | 🔒 Admin |
+| `PUT` | `/books/:id` | Cập nhật sách (full replace) | 🔒 Admin |
+| `PATCH` | `/books/:id/flash-sale` | Bật / tắt Flash Sale cho sách | 🔒 Admin |
 | `DELETE` | `/books/:id` | Xóa sách | 🔒 Admin |
+
+#### Query params cho `GET /books`
+| Param | Kiểu | Mô tả |
+|---|---|---|
+| `search` | string | Tìm theo tên hoặc tác giả |
+| `category` | string | Lọc theo danh mục |
+| `minPrice` / `maxPrice` | number | Khoảng giá |
+| `sort` | string | Sắp xếp (vd: `-price`, `title`, `-createdAt`) |
+| `page` / `limit` | number | Phân trang (limit tối đa 50) |
+| `flashSale` | `true` | Chỉ trả về sách đang trong kỳ Flash Sale |
+
+#### Body cho `PATCH /books/:id/flash-sale`
+```json
+{
+  "isFlashSale": true,
+  "discountPercent": 50,
+  "durationHours": 24,
+  "endDate": "2026-10-05T00:00:00Z"
+}
+```
 
 ### Cart
 | Method | Endpoint | Mô tả | Auth |

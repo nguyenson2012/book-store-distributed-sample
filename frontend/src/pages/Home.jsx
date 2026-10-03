@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import api from '../services/api';
 import BookCard from '../components/BookCard';
+import FlashSaleSection from '../components/FlashSaleSection';
 import { errMsg } from '../utils/helpers';
 
 // Backend chưa có endpoint danh mục nên khai báo tạm theo dữ liệu seed
@@ -63,12 +64,29 @@ export default function Home() {
   };
 
   const page = pagination?.page || 1;
+  const isFlashSaleFilter = params.get('flashSale') === 'true';
 
   return (
-    <div className="mx-auto grid max-w-6xl gap-6 px-4 py-8 md:grid-cols-4">
-      {/* Bộ lọc */}
-      <aside className="md:col-span-1">
-        <form onSubmit={applyFilters} className="card space-y-4">
+    <div className="mx-auto max-w-6xl px-4 py-8">
+      {/* Section Flash Sale nổi bật */}
+      <FlashSaleSection />
+
+      <div className="grid gap-6 md:grid-cols-4">
+        {/* Bộ lọc */}
+        <aside className="md:col-span-1">
+          <form onSubmit={applyFilters} className="card space-y-4">
+            {/* Lọc nhanh Flash Sale */}
+            <div className="rounded-lg bg-rose-50 p-2.5 border border-rose-200">
+              <label className="flex items-center gap-2 cursor-pointer text-sm font-bold text-rose-700 select-none">
+                <input
+                  type="checkbox"
+                  className="rounded text-rose-600 focus:ring-rose-500 h-4 w-4"
+                  checked={isFlashSaleFilter}
+                  onChange={(e) => update({ flashSale: e.target.checked ? 'true' : '' })}
+                />
+                <span>⚡ Chỉ sách Flash Sale (-50%)</span>
+              </label>
+            </div>
           <div>
             <label className="mb-1 block text-sm font-medium">Tìm kiếm</label>
             <input className="input" placeholder="Tên sách hoặc tác giả"
@@ -135,6 +153,7 @@ export default function Home() {
           </>
         )}
       </section>
+      </div>
     </div>
   );
 }
