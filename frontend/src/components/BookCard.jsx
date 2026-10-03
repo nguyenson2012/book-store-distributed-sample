@@ -1,17 +1,40 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { addToCart } from '../store/cartSlice';
 import { formatPrice } from '../utils/helpers';
 
-// Ảnh bìa: dùng URL nếu có, ngược lại hiện khung màu với chữ cái đầu
+// Ảnh bìa: dùng URL nếu có, fallback sang khung màu nếu ảnh lỗi hoặc không có URL
 export function Cover({ book, className = '' }) {
-  if (book.coverImage?.startsWith('http')) {
-    return <img src={book.coverImage} alt={book.title} className={`object-cover ${className}`} />;
+  const [hasError, setHasError] = useState(false);
+
+  useEffect(() => {
+    setHasError(false);
+  }, [book?.coverImage]);
+
+  const hasValidImage = Boolean(
+    book?.coverImage &&
+    book.coverImage !== 'default-cover.jpg' &&
+    (book.coverImage.startsWith('http://') ||
+     book.coverImage.startsWith('https://') ||
+     book.coverImage.startsWith('/') ||
+     book.coverImage.startsWith('data:image/'))
+  );
+
+  if (hasValidImage && !hasError) {
+    return (
+      <img
+        src={book.coverImage}
+        alt={book.title || 'Bìa sách'}
+        onError={() => setHasError(true)}
+        className={`object-cover ${className}`}
+      />
+    );
   }
+
   return (
-    <div className={`flex items-center justify-center bg-gradient-to-br from-indigo-400 to-purple-500 text-5xl font-bold text-white ${className}`}>
-      {book.title[0]}
+    <div className={`flex items-center justify-center bg-gradient-to-br from-indigo-400 to-purple-500 text-3xl font-bold text-white select-none ${className}`}>
+      {book?.title?.[0] || '📖'}
     </div>
   );
 }

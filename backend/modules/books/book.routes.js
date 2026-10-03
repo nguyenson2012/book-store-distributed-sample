@@ -10,6 +10,6 @@ router.get('/:id', getBook);
 // Chỉ admin mới được thay đổi dữ liệu sách
 router.use(protect, restrictTo('admin'));
 router.post('/', createBook);
-router.route('/:id').patch(updateBook).delete(deleteBook);
+router.route('/:id').patch(updateBook).put(updateBook).delete(deleteBook);
 
 export default router;

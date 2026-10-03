@@ -55,16 +55,37 @@ export const getBook = catchAsync(async (req, res) => {
 });
 
 export const createBook = catchAsync(async (req, res) => {
-  const book = await Book.create(req.body);
+  const data = { ...req.body };
+  if (data.discountPrice === '' || data.discountPrice === null) {
+    delete data.discountPrice;
+  }
+  if (data.coverImage && typeof data.coverImage === 'string') {
+    data.coverImage = data.coverImage.trim();
+  }
+  const book = await Book.create(data);
   res.status(201).json({ status: 'success', data: { book } });
 });
 
 export const updateBook = catchAsync(async (req, res) => {
-  const book = await Book.findByIdAndUpdate(req.params.id, req.body, {
-    new: true,
-    runValidators: true,
-  });
+  const book = await Book.findById(req.params.id);
   if (!book) throw new AppError('Không tìm thấy sách', 404);
+
+  const updates = { ...req.body };
+
+  // Xử lý discountPrice: nếu rỗng hoặc null thì gỡ bỏ giá khuyến mãi
+  if ('discountPrice' in updates) {
+    if (updates.discountPrice === null || updates.discountPrice === '' || updates.discountPrice === undefined) {
+      book.discountPrice = undefined;
+      delete updates.discountPrice;
+    }
+  }
+
+  if (updates.coverImage && typeof updates.coverImage === 'string') {
+    updates.coverImage = updates.coverImage.trim();
+  }
+
+  Object.assign(book, updates);
+  await book.save();
   res.json({ status: 'success', data: { book } });
 });
 
