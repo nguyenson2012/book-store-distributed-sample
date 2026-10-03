@@ -50,7 +50,7 @@ const sendEmail = async ({ to, subject, html }) => {
     // Dev: in link xem email giả
     console.log(`📧 [EmailService] Ethereal preview: ${nodemailer.getTestMessageUrl(info)}`);
   } else {
-    console.log(`📧 [EmailService] Sent via Brevo: ${subject} → ${to}`);
+    console.log(`📧 [EmailService] Sent email via ${process.env.EMAIL_HOST}: ${subject} → ${to}`);
   }
   return info;
 };
