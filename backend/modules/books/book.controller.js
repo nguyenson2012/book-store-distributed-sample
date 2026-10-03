@@ -9,8 +9,27 @@ const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  * ?search=harry&category=Fantasy&minPrice=50000&maxPrice=200000
  * &sort=-price,title&page=2&limit=12
  */
+export const getFlashSaleBooks = catchAsync(async (req, res) => {
+  const now = new Date();
+  const books = await Book.find({
+    isFlashSale: true,
+    flashSaleEndDate: { $gt: now },
+    $or: [
+      { flashSaleStartDate: { $exists: false } },
+      { flashSaleStartDate: null },
+      { flashSaleStartDate: { $lte: now } },
+    ],
+  }).sort({ flashSaleEndDate: 1 });
+
+  res.json({
+    status: 'success',
+    results: books.length,
+    data: { books },
+  });
+});
+
 export const getAllBooks = catchAsync(async (req, res) => {
-  const { search, category, minPrice, maxPrice, sort, page = 1, limit = 12 } = req.query;
+  const { search, category, minPrice, maxPrice, sort, page = 1, limit = 12, flashSale } = req.query;
   const filter = {};
 
   // Tìm kiếm theo tiêu đề hoặc tác giả (không phân biệt hoa thường)
@@ -20,6 +39,18 @@ export const getAllBooks = catchAsync(async (req, res) => {
   }
 
   if (category) filter.category = category;
+
+  // Lọc chỉ lấy sách đang flash sale
+  if (flashSale === 'true') {
+    const now = new Date();
+    filter.isFlashSale = true;
+    filter.flashSaleEndDate = { $gt: now };
+    filter.$or = [
+      { flashSaleStartDate: { $exists: false } },
+      { flashSaleStartDate: null },
+      { flashSaleStartDate: { $lte: now } },
+    ];
+  }
 
   // Lọc khoảng giá
   if (minPrice || maxPrice) {
@@ -80,11 +111,54 @@ export const updateBook = catchAsync(async (req, res) => {
     }
   }
 
+  // Xử lý trạng thái Flash Sale
+  if ('isFlashSale' in updates) {
+    if (!updates.isFlashSale) {
+      book.isFlashSale = false;
+      book.flashSaleEndDate = undefined;
+      book.flashSaleStartDate = undefined;
+      delete updates.flashSaleEndDate;
+      delete updates.flashSaleStartDate;
+    } else {
+      book.isFlashSale = true;
+      if (!updates.flashSaleDiscount) updates.flashSaleDiscount = 50;
+      if (!updates.flashSaleStartDate && !book.flashSaleStartDate) {
+        updates.flashSaleStartDate = new Date();
+      }
+    }
+  }
+
   if (updates.coverImage && typeof updates.coverImage === 'string') {
     updates.coverImage = updates.coverImage.trim();
   }
 
   Object.assign(book, updates);
+  await book.save();
+  res.json({ status: 'success', data: { book } });
+});
+
+export const toggleFlashSale = catchAsync(async (req, res) => {
+  const { isFlashSale, durationHours, endDate, discountPercent = 50 } = req.body;
+  const book = await Book.findById(req.params.id);
+  if (!book) throw new AppError('Không tìm thấy sách', 404);
+
+  if (isFlashSale) {
+    book.isFlashSale = true;
+    book.flashSaleDiscount = Number(discountPercent) || 50;
+    book.flashSaleStartDate = new Date();
+    if (endDate) {
+      book.flashSaleEndDate = new Date(endDate);
+    } else if (durationHours) {
+      book.flashSaleEndDate = new Date(Date.now() + Number(durationHours) * 60 * 60 * 1000);
+    } else {
+      book.flashSaleEndDate = new Date(Date.now() + 24 * 60 * 60 * 1000); // mặc định 24h
+    }
+  } else {
+    book.isFlashSale = false;
+    book.flashSaleEndDate = undefined;
+    book.flashSaleStartDate = undefined;
+  }
+
   await book.save();
   res.json({ status: 'success', data: { book } });
 });

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { addToCart } from '../store/cartSlice';
-import { formatPrice } from '../utils/helpers';
+import { formatPrice, isBookFlashSaleActive, getBookFinalPrice } from '../utils/helpers';
 
 // Ảnh bìa: dùng URL nếu có, fallback sang khung màu nếu ảnh lỗi hoặc không có URL
 export function Cover({ book, className = '' }) {
@@ -58,24 +58,46 @@ export function useAddToCart() {
 
 export default function BookCard({ book }) {
   const { add, added } = useAddToCart();
-  const finalPrice = book.discountPrice ?? book.price;
+  const isFlash = isBookFlashSaleActive(book);
+  const finalPrice = getBookFinalPrice(book);
 
   return (
-    <div className="card flex flex-col overflow-hidden !p-0">
+    <div className={`card relative flex flex-col overflow-hidden !p-0 transition hover:shadow-md ${isFlash ? 'ring-2 ring-rose-500/80 shadow-rose-100' : ''}`}>
+      {/* Badge Flash Sale */}
+      {isFlash && (
+        <div className="absolute left-2 top-2 z-10 flex items-center gap-1 rounded-md bg-gradient-to-r from-amber-500 to-rose-600 px-2.5 py-1 text-xs font-black uppercase text-white shadow-md">
+          <span>⚡</span>
+          <span>-50% SALE</span>
+        </div>
+      )}
+
       <Link to={`/books/${book._id}`}>
         <Cover book={book} className="h-52 w-full" />
       </Link>
       <div className="flex flex-1 flex-col gap-1 p-4">
-        <span className="text-xs font-medium uppercase text-indigo-500">{book.category}</span>
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-medium uppercase text-indigo-500">{book.category}</span>
+          {isFlash && (
+            <span className="text-[11px] font-bold text-rose-600 animate-pulse">⚡ Flash Sale</span>
+          )}
+        </div>
+
         <Link to={`/books/${book._id}`} className="line-clamp-2 font-semibold text-slate-900 hover:text-indigo-600">
           {book.title}
         </Link>
         <span className="text-sm text-slate-500">{book.author}</span>
 
         <div className="mt-auto pt-3">
-          <span className="font-bold text-rose-600">{formatPrice(finalPrice)}</span>
-          {book.discountPrice != null && (
-            <span className="ml-2 text-sm text-slate-400 line-through">{formatPrice(book.price)}</span>
+          <div className="flex items-baseline gap-2">
+            <span className="text-base font-bold text-rose-600">{formatPrice(finalPrice)}</span>
+            {(isFlash || book.discountPrice != null) && (
+              <span className="text-xs text-slate-400 line-through">{formatPrice(book.price)}</span>
+            )}
+          </div>
+          {isFlash && (
+            <div className="mt-1 text-[11px] font-medium text-amber-600 flex items-center gap-1">
+              <span>🔥</span> Tiết kiệm 50% giá gốc
+            </div>
           )}
         </div>
 

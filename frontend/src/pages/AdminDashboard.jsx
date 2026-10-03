@@ -1,7 +1,16 @@
 import { useEffect, useState } from 'react';
 import api from '../services/api';
 import { Cover } from '../components/BookCard';
-import { errMsg, formatPrice, ORDER_STATUS, STATUS_COLOR, STATUS_LABEL } from '../utils/helpers';
+import {
+  errMsg,
+  formatPrice,
+  ORDER_STATUS,
+  STATUS_COLOR,
+  STATUS_LABEL,
+  isBookFlashSaleActive,
+  getBookFinalPrice,
+  getTimeLeft,
+} from '../utils/helpers';
 
 const CATEGORIES = [
   'Văn học',
@@ -159,7 +168,7 @@ function CoverImageField({ value, onChange, label = 'Ảnh bìa sách' }) {
 }
 
 /**
- * Modal cập nhật thông tin sách
+ * Modal cập nhật thông tin sách & cài đặt Flash Sale
  */
 function EditBookModal({ book, onClose, onSave }) {
   const [form, setForm] = useState({
@@ -172,11 +181,29 @@ function EditBookModal({ book, onClose, onSave }) {
     coverImage: book.coverImage || '',
     description: book.description || '',
   });
+
+  // State Flash Sale
+  const currentlyActiveFlashSale = isBookFlashSaleActive(book);
+  const [isFlashSale, setIsFlashSale] = useState(currentlyActiveFlashSale);
+  const [flashSaleEndDate, setFlashSaleEndDate] = useState(() => {
+    if (book.flashSaleEndDate) {
+      const d = new Date(book.flashSaleEndDate);
+      return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    }
+    const defaultEnd = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    return new Date(defaultEnd.getTime() - defaultEnd.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  });
+
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
   const setField = (k) => (v) => setForm((prev) => ({ ...prev, [k]: v }));
   const setInput = (k) => (e) => setForm((prev) => ({ ...prev, [k]: e.target.value }));
+
+  const setDurationPreset = (hours) => {
+    const end = new Date(Date.now() + hours * 60 * 60 * 1000);
+    setFlashSaleEndDate(new Date(end.getTime() - end.getTimezoneOffset() * 60000).toISOString().slice(0, 16));
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -192,6 +219,14 @@ function EditBookModal({ book, onClose, onSave }) {
       return setError('Số lượng tồn kho không được âm');
     }
 
+    if (isFlashSale && !flashSaleEndDate) {
+      return setError('Vui lòng chọn thời điểm kết thúc Flash Sale');
+    }
+
+    if (isFlashSale && new Date(flashSaleEndDate).getTime() <= Date.now()) {
+      return setError('Thời điểm kết thúc Flash Sale phải ở trong tương lai');
+    }
+
     const payload = {
       title: form.title.trim(),
       author: form.author.trim(),
@@ -200,7 +235,16 @@ function EditBookModal({ book, onClose, onSave }) {
       stock: stockNum,
       coverImage: form.coverImage?.trim() || 'default-cover.jpg',
       description: form.description?.trim() || '',
+      isFlashSale,
     };
+
+    if (isFlashSale) {
+      payload.flashSaleDiscount = 50;
+      payload.flashSaleStartDate = book.flashSaleStartDate || new Date().toISOString();
+      payload.flashSaleEndDate = new Date(flashSaleEndDate).toISOString();
+    } else {
+      payload.flashSaleEndDate = null;
+    }
 
     if (form.discountPrice !== '' && form.discountPrice != null) {
       const discountNum = Number(form.discountPrice);
@@ -212,7 +256,7 @@ function EditBookModal({ book, onClose, onSave }) {
       }
       payload.discountPrice = discountNum;
     } else {
-      payload.discountPrice = null; // backend sẽ gỡ bỏ khuyến mãi
+      payload.discountPrice = null; // backend sẽ gỡ bỏ khuyến mãi thường
     }
 
     setSaving(true);
@@ -327,6 +371,80 @@ function EditBookModal({ book, onClose, onSave }) {
             </div>
           </div>
 
+          {/* Cấu hình Flash Sale (Giảm giá 50%) */}
+          <div className="rounded-xl border border-rose-200 bg-rose-50/70 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2 cursor-pointer font-bold text-rose-800 text-sm select-none">
+                <input
+                  type="checkbox"
+                  className="rounded text-rose-600 focus:ring-rose-500 h-4 w-4"
+                  checked={isFlashSale}
+                  onChange={(e) => setIsFlashSale(e.target.checked)}
+                />
+                <span>⚡ Bật Flash Sale cho sách này (Giảm 50%)</span>
+              </label>
+              {isFlashSale && (
+                <span className="rounded-full bg-rose-600 px-2.5 py-0.5 text-xs font-black text-white uppercase tracking-wide animate-pulse">
+                  -50% GIÁ GỐC
+                </span>
+              )}
+            </div>
+
+            {isFlashSale && (
+              <div className="space-y-3 pt-2 border-t border-rose-200">
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white p-3 border border-rose-200 text-xs">
+                  <span className="text-slate-600">
+                    Giá gốc: <b className="text-slate-900">{formatPrice(Number(form.price) || 0)}</b>
+                  </span>
+                  <span className="font-bold text-sm text-rose-600">
+                    Giá Flash Sale (-50%): {formatPrice(Math.round((Number(form.price) || 0) * 0.5))}
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Chọn nhanh thời lượng diễn ra Flash Sale:
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { label: '1 giờ', h: 1 },
+                      { label: '6 giờ', h: 6 },
+                      { label: '12 giờ', h: 12 },
+                      { label: '24 giờ (1 ngày)', h: 24 },
+                      { label: '3 ngày', h: 72 },
+                      { label: '7 ngày', h: 168 },
+                    ].map(({ label, h }) => (
+                      <button
+                        key={h}
+                        type="button"
+                        onClick={() => setDurationPreset(h)}
+                        className="rounded-md border border-rose-300 bg-white px-2.5 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100 transition"
+                      >
+                        +{label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Thời điểm kết thúc Flash Sale *
+                  </label>
+                  <input
+                    type="datetime-local"
+                    required={isFlashSale}
+                    className="input bg-white"
+                    value={flashSaleEndDate}
+                    onChange={(e) => setFlashSaleEndDate(e.target.value)}
+                  />
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    💡 Khi đến thời điểm này, hệ thống sẽ tự động gỡ trạng thái Flash Sale và chuyển giá về mức ban đầu.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="pt-2 border-t">
             <CoverImageField
               value={form.coverImage}
@@ -377,6 +495,7 @@ function BooksTab() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingBook, setEditingBook] = useState(null);
   const [search, setSearch] = useState('');
+  const [filterTab, setFilterTab] = useState('all'); // 'all' | 'flash'
   const [submitting, setSubmitting] = useState(false);
 
   const load = () =>
@@ -449,13 +568,35 @@ function BooksTab() {
     }
   };
 
+  const quickToggleFlashSale = async (b) => {
+    const isCurrent = isBookFlashSaleActive(b);
+    try {
+      const { data } = await api.patch(`/books/${b._id}/flash-sale`, {
+        isFlashSale: !isCurrent,
+        durationHours: 24, // Mặc định bật 24h
+        discountPercent: 50,
+      });
+      handleUpdateSuccess(data.data.book);
+      setSuccessNotice(
+        !isCurrent
+          ? `Đã bật Flash Sale (-50%) 24 giờ cho sách "${b.title}"!`
+          : `Đã tắt Flash Sale cho sách "${b.title}"!`
+      );
+    } catch (err) {
+      alert(errMsg(err));
+    }
+  };
+
   const handleUpdateSuccess = (updatedBook) => {
     setBooks((prev) => prev.map((b) => (b._id === updatedBook._id ? updatedBook : b)));
     setSuccessNotice(`Đã cập nhật thông tin sách "${updatedBook.title}" thành công!`);
     setTimeout(() => setSuccessNotice(''), 4000);
   };
 
+  const flashSaleCount = books.filter(isBookFlashSaleActive).length;
+
   const filteredBooks = books.filter((b) => {
+    if (filterTab === 'flash' && !isBookFlashSaleActive(b)) return false;
     if (!search.trim()) return true;
     const q = search.toLowerCase();
     return (
@@ -490,14 +631,41 @@ function BooksTab() {
         </div>
       )}
 
-      {/* Thanh công cụ: Nút Thêm sách & Ô tìm kiếm */}
+      {/* Thanh công cụ: Nút Thêm sách & Ô tìm kiếm & Bộ lọc Flash Sale */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <button
-          onClick={() => setShowAddForm(!showAddForm)}
-          className="btn flex items-center gap-2 shadow-xs"
-        >
-          <span>{showAddForm ? '✕ Đóng form thêm sách' : '＋ Thêm sách mới'}</span>
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setShowAddForm(!showAddForm)}
+            className="btn flex items-center gap-2 shadow-xs"
+          >
+            <span>{showAddForm ? '✕ Đóng form thêm sách' : '＋ Thêm sách mới'}</span>
+          </button>
+
+          {/* Tab lọc nhanh */}
+          <div className="flex rounded-lg border border-slate-200 bg-white p-0.5 text-xs font-semibold">
+            <button
+              onClick={() => setFilterTab('all')}
+              className={`rounded-md px-3 py-1.5 transition ${
+                filterTab === 'all' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Tất cả ({books.length})
+            </button>
+            <button
+              onClick={() => setFilterTab('flash')}
+              className={`rounded-md px-3 py-1.5 transition flex items-center gap-1 ${
+                filterTab === 'flash'
+                  ? 'bg-rose-600 text-white'
+                  : 'text-rose-600 hover:bg-rose-50'
+              }`}
+            >
+              <span>⚡ Đang Flash Sale</span>
+              <span className={`rounded-full px-1.5 py-0.2 text-[10px] ${filterTab === 'flash' ? 'bg-white text-rose-700' : 'bg-rose-100 text-rose-700'}`}>
+                {flashSaleCount}
+              </span>
+            </button>
+          </div>
+        </div>
 
         <div className="relative w-full sm:w-72">
           <input
@@ -641,18 +809,35 @@ function BooksTab() {
             {filteredBooks.length === 0 ? (
               <tr>
                 <td colSpan="6" className="p-8 text-center text-slate-500">
-                  {search ? 'Không tìm thấy sách phù hợp với từ khóa' : 'Chưa có cuốn sách nào trong kho'}
+                  {search
+                    ? 'Không tìm thấy sách phù hợp với từ khóa'
+                    : filterTab === 'flash'
+                    ? 'Hiện không có cuốn sách nào đang trong chương trình Flash Sale'
+                    : 'Chưa có cuốn sách nào trong kho'}
                 </td>
               </tr>
             ) : (
               filteredBooks.map((b) => {
+                const isFlash = isBookFlashSaleActive(b);
                 const hasDiscount = b.discountPrice != null && b.discountPrice < b.price;
+                const flashPrice = Math.round(b.price * 0.5);
+
                 return (
-                  <tr key={b._id} className="hover:bg-slate-50/80 transition-colors">
+                  <tr
+                    key={b._id}
+                    className={`hover:bg-slate-50/80 transition-colors ${
+                      isFlash ? 'bg-rose-50/25' : ''
+                    }`}
+                  >
                     {/* Bìa sách */}
                     <td className="p-3 text-center">
-                      <div className="inline-block overflow-hidden rounded shadow-xs border border-slate-200">
+                      <div className="relative inline-block overflow-hidden rounded shadow-xs border border-slate-200">
                         <Cover book={b} className="h-12 w-9 rounded object-cover" />
+                        {isFlash && (
+                          <div className="absolute top-0 right-0 bg-rose-600 text-[9px] font-black text-white px-1 py-0.2 rounded-bl">
+                            ⚡
+                          </div>
+                        )}
                       </div>
                     </td>
 
@@ -660,6 +845,21 @@ function BooksTab() {
                     <td className="p-3">
                       <div className="font-semibold text-slate-900 line-clamp-1">{b.title}</div>
                       <div className="text-xs text-slate-500">{b.author}</div>
+                      {isFlash && (
+                        <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                          <span className="inline-flex items-center gap-0.5 rounded bg-rose-600 px-1.5 py-0.5 text-[10px] font-black text-white shadow-2xs">
+                            ⚡ FLASH SALE -50%
+                          </span>
+                          <span className="text-[11px] text-rose-600 font-medium">
+                            Đến {new Date(b.flashSaleEndDate).toLocaleDateString('vi-VN', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              day: '2-digit',
+                              month: '2-digit',
+                            })}
+                          </span>
+                        </div>
+                      )}
                     </td>
 
                     {/* Danh mục */}
@@ -671,7 +871,19 @@ function BooksTab() {
 
                     {/* Giá bán */}
                     <td className="p-3">
-                      {hasDiscount ? (
+                      {isFlash ? (
+                        <div>
+                          <div className="font-bold text-rose-600 flex items-center gap-1">
+                            <span>{formatPrice(flashPrice)}</span>
+                            <span className="rounded bg-rose-100 px-1 py-0.2 text-[10px] font-black text-rose-700">
+                              -50%
+                            </span>
+                          </div>
+                          <div className="text-xs text-slate-400 line-through">
+                            {formatPrice(b.price)}
+                          </div>
+                        </div>
+                      ) : hasDiscount ? (
                         <div>
                           <div className="font-semibold text-rose-600">
                             {formatPrice(b.discountPrice)}
@@ -701,7 +913,18 @@ function BooksTab() {
                     </td>
 
                     {/* Hành động */}
-                    <td className="p-3 text-right pr-4 space-x-2">
+                    <td className="p-3 text-right pr-4 space-x-1.5 whitespace-nowrap">
+                      <button
+                        onClick={() => quickToggleFlashSale(b)}
+                        title={isFlash ? 'Tắt chế độ Flash Sale' : 'Kích hoạt Flash Sale 24h (-50%)'}
+                        className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-bold transition ${
+                          isFlash
+                            ? 'bg-rose-100 text-rose-700 hover:bg-rose-200'
+                            : 'bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200'
+                        }`}
+                      >
+                        {isFlash ? '✕ Tắt Sale' : '⚡ Bật 24h'}
+                      </button>
                       <button
                         onClick={() => setEditingBook(b)}
                         className="inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition"
