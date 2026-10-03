@@ -12,7 +12,7 @@
 bookstore-monolith/
 ├── backend/               # Node.js + Express API Server
 │   ├── modules/           # Domain modules (sẵn sàng tách microservice)
-│   │   ├── auth/          # Xác thực — JWT, Refresh Token
+│   │   ├── auth/          # Xác thực — JWT, Refresh Token, Email Verify
 │   │   ├── users/         # Người dùng, địa chỉ giao hàng
 │   │   ├── books/         # Quản lý sách, tìm kiếm
 │   │   ├── cart/          # Giỏ hàng
@@ -21,11 +21,11 @@ bookstore-monolith/
 │   │   └── reviews/       # Đánh giá sách
 │   ├── middleware/        # Auth guard, error handler
 │   ├── config/            # Kết nối MongoDB
-│   └── utils/             # JWT helper, AppError, catchAsync
+│   └── utils/             # JWT helper, AppError, catchAsync, Email sender
 │
 ├── frontend/              # React 19 + Vite + TailwindCSS 4
 │   └── src/
-│       ├── pages/         # Home, BookDetail, Cart, Checkout, Auth, Admin
+│       ├── pages/         # Home, BookDetail, Cart, Checkout, Auth, VerifyEmail, Admin
 │       ├── components/    # Navbar, Footer, BookCard, RouteGuards
 │       ├── store/         # Redux Toolkit (auth, cart, notification)
 │       ├── services/      # Axios instance + interceptors
@@ -45,6 +45,7 @@ bookstore-monolith/
 | Framework | Express 5 |
 | Database | MongoDB Atlas (Mongoose 9) |
 | Auth | JWT Access Token + Refresh Token (HttpOnly Cookie) |
+| Email | Nodemailer + Resend SMTP (production) / Ethereal (development) |
 | Security | Helmet, CORS, express-rate-limit, bcryptjs |
 | Logging | Morgan |
 
@@ -73,6 +74,7 @@ bookstore-monolith/
 
 ### Khách hàng
 - 🔐 **Xác thực**: Đăng ký / Đăng nhập với JWT Access Token + Refresh Token tự động gia hạn
+- 📧 **Xác nhận email**: Gửi email xác nhận sau đăng ký — tài khoản chỉ hoạt động sau khi click link (token có hiệu lực 24 giờ)
 - 📖 **Duyệt sách**: Xem danh sách, tìm kiếm, xem chi tiết sách
 - 🛒 **Giỏ hàng**: Thêm / xóa / cập nhật số lượng
 - 💳 **Đặt hàng**: Thanh toán, quản lý địa chỉ giao hàng
@@ -90,6 +92,7 @@ bookstore-monolith/
 - Rate limiting trên các route xác thực
 - Role-based access control (customer / admin)
 - Helmet HTTP headers hardening
+- Email verify token được hash SHA-256 trước khi lưu DB (chống lộ token)
 
 ---
 
@@ -127,7 +130,22 @@ JWT_ACCESS_SECRET=<chuỗi_bí_mật_dài_ngẫu_nhiên>
 JWT_REFRESH_SECRET=<chuỗi_bí_mật_khác>
 JWT_ACCESS_EXPIRES=15m
 JWT_REFRESH_EXPIRES=7d
+
+# Email — để trống để dùng Ethereal (test) trong dev
+# Xem log console để lấy link preview email khi đăng ký
+EMAIL_HOST=
+EMAIL_PORT=587
+EMAIL_SECURE=false
+EMAIL_USER=
+EMAIL_PASS=
+EMAIL_FROM=noreply@bookstore.dev
 ```
+
+> **Lưu ý khi dev**: Khi `EMAIL_HOST` để trống, backend tự tạo [Ethereal](https://ethereal.email) account và in preview URL vào console:
+> ```
+> 📧 Email preview URL: https://ethereal.email/message/xxxxx
+> ```
+> Mở URL đó để xem email và lấy link xác nhận.
 
 Khởi tạo dữ liệu mẫu (tùy chọn):
 ```bash
@@ -188,6 +206,22 @@ Vào **Settings → Secrets and variables → Actions** của repository và th�
 | `MONGO_URI` | Chuỗi kết nối MongoDB Atlas |
 | `JWT_ACCESS_SECRET` | Secret cho Access Token |
 | `JWT_REFRESH_SECRET` | Secret cho Refresh Token |
+| `EMAIL_HOST` | SMTP host (vd: `smtp.resend.com`) |
+| `EMAIL_PORT` | SMTP port (vd: `587`) |
+| `EMAIL_SECURE` | `false` cho TLS thường, `true` cho SSL |
+| `EMAIL_USER` | SMTP username (vd: `resend`) |
+| `EMAIL_PASS` | SMTP password / API Key |
+| `EMAIL_FROM` | Địa chỉ gửi email (vd: `noreply@yourdomain.com`) |
+
+> **Dịch vụ email miễn phí khuyến nghị cho production**: [Resend](https://resend.com) — 3,000 email/tháng, không cần credit card.
+> ```
+> EMAIL_HOST=smtp.resend.com
+> EMAIL_PORT=587
+> EMAIL_SECURE=false
+> EMAIL_USER=resend
+> EMAIL_PASS=re_xxxxxxxxxxxxxxxxxxxx   ← API Key từ resend.com
+> EMAIL_FROM=onboarding@resend.dev      ← hoặc noreply@yourdomain.com sau khi verify domain
+> ```
 
 ### Cấu hình tối ưu Free Tier
 
@@ -209,10 +243,11 @@ Base URL: `http://localhost:5001/api/v1` (Local) hoặc URL Cloud Run của bạ
 ### Auth
 | Method | Endpoint | Mô tả | Auth |
 |---|---|---|---|
-| `POST` | `/auth/register` | Đăng ký tài khoản | ❌ |
-| `POST` | `/auth/login` | Đăng nhập | ❌ |
+| `POST` | `/auth/register` | Đăng ký — gửi email xác nhận | ❌ |
+| `POST` | `/auth/login` | Đăng nhập (yêu cầu email đã xác nhận) | ❌ |
 | `POST` | `/auth/refresh` | Gia hạn Access Token | Cookie |
 | `POST` | `/auth/logout` | Đăng xuất | Cookie |
+| `GET` | `/auth/verify-email?token=` | Xác nhận email từ link | ❌ |
 
 ### Books
 | Method | Endpoint | Mô tả | Auth |
