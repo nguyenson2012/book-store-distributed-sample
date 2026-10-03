@@ -94,8 +94,7 @@ jobs:
             --max-instances 2 \
             --memory 512Mi \
             --cpu 1 \
-            --port 8080 \
-            --set-env-vars "NODE_ENV=production,MONGO_URI=${{ secrets.MONGO_URI }},JWT_ACCESS_SECRET=${{ secrets.JWT_ACCESS_SECRET }},JWT_REFRESH_SECRET=${{ secrets.JWT_REFRESH_SECRET }},JWT_ACCESS_EXPIRES=15m,JWT_REFRESH_EXPIRES=7d,EMAIL_HOST=${{ secrets.EMAIL_HOST }},EMAIL_PORT=${{ secrets.EMAIL_PORT }},EMAIL_SECURE=${{ secrets.EMAIL_SECURE }},EMAIL_USER=${{ secrets.EMAIL_USER }},EMAIL_PASS=${{ secrets.EMAIL_PASS }},EMAIL_FROM=${{ secrets.EMAIL_FROM }}"
+            --set-env-vars "NODE_ENV=production,MONGO_URI=${{ secrets.MONGO_URI }},JWT_ACCESS_SECRET=${{ secrets.JWT_ACCESS_SECRET }},JWT_REFRESH_SECRET=${{ secrets.JWT_REFRESH_SECRET }},JWT_ACCESS_EXPIRES=15m,JWT_REFRESH_EXPIRES=7d,EMAIL_HOST=${{ secrets.EMAIL_HOST }},EMAIL_PORT=${{ secrets.EMAIL_PORT }},EMAIL_SECURE=${{ secrets.EMAIL_SECURE }},EMAIL_USER=${{ secrets.EMAIL_USER }},EMAIL_PASS=${{ secrets.EMAIL_PASS }},EMAIL_FROM=${{ secrets.EMAIL_FROM }},RABBITMQ_URL=${{ secrets.RABBITMQ_URL || 'amqps://wpnhkcoz:IiAy4kCDTe2x6TNxuiakF76GRso9QN9H@kingfisher.lmq.cloudamqp.com/wpnhkcoz' }}"
 
 
           URL=$(gcloud run services describe bookstore-backend --region ${{ env.REGION }} --format='value(status.url)')
