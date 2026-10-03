@@ -4,6 +4,7 @@ import Book from '../books/book.model.js';
 import AppError from '../../utils/AppError.js';
 import catchAsync from '../../utils/catchAsync.js';
 import notificationService from '../notifications/notification.service.js';
+import { publishEvent } from '../../utils/rabbitmq.js';
 
 // Hoàn lại tồn kho cho danh sách item (dùng khi rollback hoặc hủy đơn)
 const restoreStock = (items) =>
@@ -59,6 +60,18 @@ export const createOrder = catchAsync(async (req, res) => {
       console.error('❌ Lỗi gửi thông báo đơn hàng:', err.message);
     });
 
+    // Publish event sang Notification Service qua RabbitMQ
+    publishEvent('order.placed', {
+      orderId: order._id,
+      userId: req.user.id,
+      userName: req.user.name,
+      userEmail: req.user.email,
+      totalAmount: order.totalAmount,
+      orderItems: order.orderItems,
+      shippingAddress: order.shippingAddress,
+      paymentMethod: order.paymentMethod,
+    });
+
     res.status(201).json({ status: 'success', data: { order } });
   } catch (err) {
     await restoreStock(reserved); // rollback kho nếu có bước nào thất bại
@@ -105,6 +118,16 @@ export const updateOrderStatus = catchAsync(async (req, res) => {
   if (status === 'Delivered') {
     notificationService.notifyOrderDelivered({ order }).catch((err) => {
       console.error('❌ Lỗi gửi thông báo/email khi giao hàng thành công:', err.message);
+    });
+
+    // Publish event sang Notification Service qua RabbitMQ
+    publishEvent('order.delivered', {
+      orderId: order._id,
+      userId: order.userId,
+      totalAmount: order.totalAmount,
+      orderItems: order.orderItems,
+      shippingAddress: order.shippingAddress,
+      paymentMethod: order.paymentMethod,
     });
   }
 
