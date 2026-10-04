@@ -120,18 +120,18 @@ MONGO_URI=mongodb+srv://<user>:<password>@cluster0.xxxxx.mongodb.net/bookstore_p
 CLIENT_URL=http://localhost:5173
 
 # 2. JWT Secret — Đồng bộ với Backend Monolith để xác thực Admin
-JWT_ACCESS_SECRET=709f25f9ab7d27a5267260e7443c8b722c9009f45caa8691ebe54754b0efa26d
+JWT_ACCESS_SECRET=<chuoi_jwt_secret_khop_voi_monolith>
 
 # 3. Meilisearch — Trên GCP VM (hoặc Docker local)
-MEILI_HOST=http://35.240.239.65:7700
-MEILI_MASTER_KEY=5658d1c44aec8fade8d896a26e63d0e166a18b5ff93b24f63ed46c67d93ab5c5
+MEILI_HOST=http://<ip_vm_gcp_hoac_localhost>:7700
+MEILI_MASTER_KEY=<your_meilisearch_master_key>
 MEILI_INDEX=books
 
 # 4. Redis Cache — Upstash (Lưu ý giao thức rediss:// cho TLS)
-REDIS_URL=rediss://default:<password>@champion-kite-194197.upstash.io:6379
+REDIS_URL=rediss://default:<password>@<your_redis_host>.upstash.io:6379
 
 # 5. Secret giao tiếp nội bộ giữa Monolith & Product Service
-PRODUCT_INTERNAL_SECRET=doi_internal_secret_nay
+PRODUCT_INTERNAL_SECRET=<your_product_internal_secret>
 
 # 6. URI Monolith cũ (chỉ dùng khi chạy script migrate-from-monolith.js)
 MONOLITH_MONGO_URI=mongodb+srv://<user>:<password>@cluster0.xxxxx.mongodb.net/bookstore
@@ -160,10 +160,10 @@ npm run dev
 
 Khi chạy thành công, console sẽ hiển thị:
 ```
-✅ Product MongoDB: cluster0.6o6vo5n.mongodb.net/bookstore_products
+✅ Product MongoDB: cluster0.xxxxx.mongodb.net/bookstore_products
 ✅ Redis (Upstash) connected
-✅ Meilisearch: http://35.240.239.65:7700 index=books
-🔎 Đã đồng bộ 16 sách lên Meilisearch
+✅ Meilisearch: http://<meili_host>:7700 index=books
+🔎 Đã đồng bộ 100 sách lên Meilisearch
 🚀 Product Service running on port 5002
 ```
 
