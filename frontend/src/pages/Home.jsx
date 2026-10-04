@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import api from '../services/api';
+import { catalogApi } from '../services/api';
 import BookCard from '../components/BookCard';
 import FlashSaleSection from '../components/FlashSaleSection';
 import { errMsg } from '../utils/helpers';
@@ -31,7 +31,7 @@ export default function Home() {
   useEffect(() => {
     let ignore = false;
     setLoading(true);
-    api
+    catalogApi
       .get('/books', { params: Object.fromEntries(params) })
       .then(({ data }) => {
         if (ignore) return;

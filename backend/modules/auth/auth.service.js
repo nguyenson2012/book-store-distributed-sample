@@ -46,9 +46,9 @@ export const verifyEmail = async (rawToken) => {
   return user;
 };
 
-export const issueTokens = (userId) => ({
-  accessToken: signAccessToken(userId),
-  refreshToken: signRefreshToken(userId),
+export const issueTokens = (user) => ({
+  accessToken: signAccessToken(user.id, user.role),
+  refreshToken: signRefreshToken(user.id),
 });
 
 export const refreshAccessToken = async (refreshToken) => {
@@ -56,5 +56,5 @@ export const refreshAccessToken = async (refreshToken) => {
   const { id } = verifyRefreshToken(refreshToken);
   const user = await User.findById(id);
   if (!user) throw new AppError('Người dùng không còn tồn tại', 401);
-  return signAccessToken(user.id);
+  return signAccessToken(user.id, user.role);
 };

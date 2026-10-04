@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import api from '../services/api';
+import api, { catalogWriteApi } from '../services/api';
 import { Cover } from '../components/BookCard';
 import {
   errMsg,
@@ -261,7 +261,7 @@ function EditBookModal({ book, onClose, onSave }) {
 
     setSaving(true);
     try {
-      const { data } = await api.patch(`/books/${book._id}`, payload);
+      const { data } = await catalogWriteApi.patch(`/books/${book._id}`, payload);
       onSave(data.data.book);
       onClose();
     } catch (err) {
@@ -499,7 +499,7 @@ function BooksTab() {
   const [submitting, setSubmitting] = useState(false);
 
   const load = () =>
-    api.get('/books', { params: { limit: 50 } }).then(({ data }) => setBooks(data.data.books));
+    catalogWriteApi.get('/books', { params: { limit: 50 } }).then(({ data }) => setBooks(data.data.books));
 
   useEffect(() => {
     load();
@@ -542,7 +542,7 @@ function BooksTab() {
 
     setSubmitting(true);
     try {
-      await api.post('/books', payload);
+      await catalogWriteApi.post('/books', payload);
       setForm(EMPTY_BOOK);
       setError('');
       setShowAddForm(false);
@@ -559,7 +559,7 @@ function BooksTab() {
   const remove = async (id, title) => {
     if (!confirm(`Bạn có chắc chắn muốn xóa cuốn sách "${title}"?`)) return;
     try {
-      await api.delete(`/books/${id}`);
+      await catalogWriteApi.delete(`/books/${id}`);
       setSuccessNotice(`Đã xóa sách "${title}" thành công!`);
       setTimeout(() => setSuccessNotice(''), 4000);
       load();
@@ -571,7 +571,7 @@ function BooksTab() {
   const quickToggleFlashSale = async (b) => {
     const isCurrent = isBookFlashSaleActive(b);
     try {
-      const { data } = await api.patch(`/books/${b._id}/flash-sale`, {
+      const { data } = await catalogWriteApi.patch(`/books/${b._id}/flash-sale`, {
         isFlashSale: !isCurrent,
         durationHours: 24, // Mặc định bật 24h
         discountPercent: 50,

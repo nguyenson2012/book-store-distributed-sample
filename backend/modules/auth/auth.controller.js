@@ -11,7 +11,7 @@ const cookieOptions = {
 };
 
 const sendAuth = (user, statusCode, res) => {
-  const { accessToken, refreshToken } = authService.issueTokens(user.id);
+  const { accessToken, refreshToken } = authService.issueTokens(user);
   res.cookie('refreshToken', refreshToken, cookieOptions);
   user.password = undefined;
   res.status(statusCode).json({ status: 'success', accessToken, data: { user } });
