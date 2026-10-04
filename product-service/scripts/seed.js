@@ -1,43 +1,1047 @@
 import 'dotenv/config';
 import mongoose from 'mongoose';
 import Book from '../src/models/book.model.js';
-import { connectMeili } from '../src/config/meili.js';
+import { connectMeili, getMeiliIndex } from '../src/config/meili.js';
 import { indexBooks } from '../src/services/search.service.js';
+import { connectRedis, getRedis } from '../src/config/redis.js';
+import { bumpCatalog } from '../src/services/cache.service.js';
 
-if (process.env.NODE_ENV === 'production') {
-  console.error('❌ Không seed trên production bằng script này');
+if (process.env.NODE_ENV === 'production' && !process.env.FORCE_SEED) {
+  console.error('❌ Không seed trên production trừ khi đặt FORCE_SEED=1');
   process.exit(1);
 }
 
-const b = (title, author, category, price, discountPrice, stock, description) => ({
-  title, author, category, price, discountPrice, stock, description,
-});
-
-const BOOKS = [
-  b('Dế Mèn Phiêu Lưu Ký', 'Tô Hoài', 'Văn học', 68000, 55000, 120, 'Tác phẩm kinh điển của văn học thiếu nhi Việt Nam.'),
-  b('Số Đỏ', 'Vũ Trọng Phụng', 'Văn học', 75000, 62000, 80, 'Tiểu thuyết trào phúng nổi tiếng về xã hội thành thị đầu thế kỷ 20.'),
-  b('Tôi Thấy Hoa Vàng Trên Cỏ Xanh', 'Nguyễn Nhật Ánh', 'Văn học', 125000, 99000, 200, 'Câu chuyện tuổi thơ ở một làng quê miền Trung.'),
-  b('Mắt Biếc', 'Nguyễn Nhật Ánh', 'Văn học', 110000, 89000, 150, 'Chuyện tình đơn phương day dứt của Ngạn dành cho Hà Lan.'),
-  b('Nhà Giả Kim', 'Paulo Coelho', 'Văn học', 79000, 65000, 300, 'Hành trình đi tìm kho báu và ý nghĩa cuộc sống của cậu bé chăn cừu Santiago.'),
-  b('Harry Potter và Hòn Đá Phù Thủy', 'J.K. Rowling', 'Thiếu nhi', 135000, 115000, 90, 'Phần đầu tiên trong loạt truyện phù thủy nổi tiếng thế giới.'),
-  b('Đắc Nhân Tâm', 'Dale Carnegie', 'Kỹ năng sống', 86000, 69000, 250, 'Nghệ thuật đối nhân xử thế và giao tiếp.'),
-  b('Atomic Habits', 'James Clear', 'Kỹ năng sống', 189000, 159000, 180, 'Xây dựng thói quen tốt, loại bỏ thói quen xấu bằng những thay đổi nhỏ.'),
-  b('Tư Duy Nhanh Và Chậm', 'Daniel Kahneman', 'Kỹ năng sống', 199000, 169000, 70, 'Hai hệ thống tư duy chi phối cách chúng ta đưa ra quyết định.'),
-  b('Nghĩ Giàu Làm Giàu', 'Napoleon Hill', 'Kinh tế', 98000, 79000, 140, 'Những nguyên tắc tư duy tạo nên thành công tài chính.'),
-  b('Cha Giàu Cha Nghèo', 'Robert T. Kiyosaki', 'Kinh tế', 95000, 76000, 160, 'Bài học về tiền bạc và đầu tư từ hai người cha có quan điểm trái ngược.'),
-  b('Sapiens: Lược Sử Loài Người', 'Yuval Noah Harari', 'Khoa học', 229000, 189000, 100, 'Lịch sử loài người từ thời nguyên thủy đến hiện đại.'),
-  b('Lược Sử Thời Gian', 'Stephen Hawking', 'Khoa học', 120000, null, 60, 'Giải thích vũ trụ, hố đen và thời gian cho độc giả phổ thông.'),
-  b('Clean Code', 'Robert C. Martin', 'Công nghệ', 450000, 380000, 40, 'Nghệ thuật viết mã sạch, dễ đọc và dễ bảo trì.'),
-  b('The Pragmatic Programmer', 'Andrew Hunt, David Thomas', 'Công nghệ', 520000, null, 25, 'Những thực hành thực tế giúp lập trình viên trở nên chuyên nghiệp hơn.'),
-  b('Sherlock Holmes Toàn Tập', 'Arthur Conan Doyle', 'Trinh thám', 280000, 230000, 5, 'Tuyển tập các vụ án của thám tử lừng danh Sherlock Holmes.'),
+const sampleCovers = [
+  'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=500&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1512820790803-83ca734da794?w=500&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=500&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1589829085413-56de8ae18c73?w=500&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1532012164546-f432f2e37b73?w=500&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=500&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1495640388908-05fa85288e61?w=500&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1524995997946-a1c2e315a42f?w=500&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1516979187457-637abb4f9353?w=500&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1476275466078-4007374efbbe?w=500&auto=format&fit=crop&q=80',
 ];
 
-await mongoose.connect(process.env.MONGO_URI);
-console.log('✅ Đã kết nối Product MongoDB');
-await Book.deleteMany();
-const books = await Book.insertMany(BOOKS);
-await connectMeili();
-await indexBooks(books);
-console.log(`📚 Đã seed ${books.length} sách + index Meilisearch`);
-await mongoose.disconnect();
-process.exit(0);
+const RAW_BOOKS = [
+  // ─── VĂN HỌC (20) ──────────────────────────────────────────────────
+  {
+    title: 'Dế Mèn Phiêu Lưu Ký',
+    author: 'Tô Hoài',
+    category: 'Văn học',
+    price: 68000,
+    discountPrice: 55000,
+    stock: 120,
+    description: 'Tác phẩm văn học thiếu nhi kinh điển của nhà văn Tô Hoài, giáo dục lòng nhân ái và tinh thần trượng nghĩa.',
+    coverImage: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSbD5SCU1Vg0cOvZsMV6PXUXuAfMjmYgOk-YnR-WrmIXw&s=10',
+    isFlashSale: true,
+    flashSaleDiscount: 45,
+  },
+  {
+    title: 'Số Đỏ',
+    author: 'Vũ Trọng Phụng',
+    category: 'Văn học',
+    price: 75000,
+    discountPrice: 62000,
+    stock: 80,
+    description: 'Kiệt tác tiểu thuyết trào phúng vạch trần thói kệch cỡm của tầng lớp tư sản thành thị Hà Nội thời tiền chiến.',
+    coverImage: 'https://encrypted-tbn2.gstatic.com/shopping?q=tbn:ANd9GcRIPlT1B65uJHcYER-FDfqLAafv5zi9yDMifQo1hd0zF0O24QeqszmOYO0Ee_MPZtr9r7Kp4RuQ3K9W5KlDZ5xL4Q3fg9arU8d752SWCcH-1NGYyrm6m_Y8_uMNGFjJGYI430SK9UE&usqp=CAc',
+    isFlashSale: true,
+    flashSaleDiscount: 50,
+  },
+  {
+    title: 'Tôi Thấy Hoa Vàng Trên Cỏ Xanh',
+    author: 'Nguyễn Nhật Ánh',
+    category: 'Văn học',
+    price: 125000,
+    discountPrice: 99000,
+    stock: 210,
+    description: 'Bức tranh đồng quê miền Trung thơ mộng với những ký ức tuổi thơ trong sáng, hồn nhiên đầy xúc động.',
+  },
+  {
+    title: 'Mắt Biếc',
+    author: 'Nguyễn Nhật Ánh',
+    category: 'Văn học',
+    price: 110000,
+    discountPrice: 89000,
+    stock: 160,
+    description: 'Mối tình đơn phương da diết của Ngạn dành cho cô bạn có đôi mắt biếc biếc ngây thơ từ thuở thiếu thời.',
+  },
+  {
+    title: 'Cho Tôi Xin Một Vé Đi Tuổi Thơ',
+    author: 'Nguyễn Nhật Ánh',
+    category: 'Văn học',
+    price: 95000,
+    discountPrice: 79000,
+    stock: 140,
+    description: 'Cuốn sách đưa người lớn trở về với thế giới tinh nghịch, trong sáng của những đứa trẻ con.',
+  },
+  {
+    title: 'Nhà Giả Kim',
+    author: 'Paulo Coelho',
+    category: 'Văn học',
+    price: 79000,
+    discountPrice: 65000,
+    stock: 350,
+    description: 'Cuộc hành trình tìm kiếm kho báu ở Kim Tự Tháp và bài học sâu sắc về việc lắng nghe tiếng gọi trái tim.',
+    isFlashSale: true,
+    flashSaleDiscount: 40,
+  },
+  {
+    title: 'Rừng Na Uy',
+    author: 'Haruki Murakami',
+    category: 'Văn học',
+    price: 145000,
+    discountPrice: 119000,
+    stock: 95,
+    description: 'Câu chuyện về sự mất mát, cô đơn và nỗi day dứt khôn nguôi của tuổi trẻ Tokyo những năm 1960.',
+  },
+  {
+    title: 'Trăm Năm Cô Đơn',
+    author: 'Gabriel Garcia Marquez',
+    category: 'Văn học',
+    price: 195000,
+    discountPrice: 165000,
+    stock: 75,
+    description: 'Đỉnh cao của chủ nghĩa hiện thực huyền ảo kể về số phận bảy thế hệ dòng họ Buendía ở làng Macondo.',
+  },
+  {
+    title: 'Chiến Tranh Và Hòa Bình',
+    author: 'Lev Tolstoy',
+    category: 'Văn học',
+    price: 320000,
+    discountPrice: 275000,
+    stock: 45,
+    description: 'Bộ đại sử thi vĩ đại khắc họa nước Nga trong cuộc chiến tranh chống quân xâm lược Napoleon.',
+  },
+  {
+    title: 'Ông Già Và Biển Cả',
+    author: 'Ernest Hemingway',
+    category: 'Văn học',
+    price: 65000,
+    discountPrice: 52000,
+    stock: 180,
+    description: 'Khúc tráng ca ngợi ca ý chí và phẩm giá con người kiên cường đối mặt với thiên nhiên hùng vĩ.',
+  },
+  {
+    title: 'Bắt Trẻ Đồng Xanh',
+    author: 'J.D. Salinger',
+    category: 'Văn học',
+    price: 88000,
+    discountPrice: 72000,
+    stock: 110,
+    description: 'Góc nhìn nổi loạn nhưng chân thành của chàng thiếu niên Holden Caulfield về xã hội người lớn đạo đức giả.',
+  },
+  {
+    title: 'Chuông Nguyện Hồn Ai',
+    author: 'Ernest Hemingway',
+    category: 'Văn học',
+    price: 135000,
+    discountPrice: 112000,
+    stock: 85,
+    description: 'Tiểu thuyết lịch sử bi tráng về cuộc nội chiến Tây Ban Nha và ý nghĩa sinh mệnh của mỗi con người.',
+  },
+  {
+    title: 'Những Người Khốn Khổ',
+    author: 'Victor Hugo',
+    category: 'Văn học',
+    price: 260000,
+    discountPrice: 215000,
+    stock: 60,
+    description: 'Kiệt tác văn học nhân đạo vĩ đại kể về cuộc đời gian truân nhưng cao thượng của Jean Valjean.',
+  },
+  {
+    title: 'Tiếng Chim Hót Trong Bụi Mận Gai',
+    author: 'Colleen McCullough',
+    category: 'Văn học',
+    price: 185000,
+    discountPrice: 149000,
+    stock: 90,
+    description: 'Bản tình ca da diết giữa Meggie và cha Ralph trên bối cảnh trang trại Drogheda miền hoang vu nước Úc.',
+  },
+  {
+    title: 'Đồi Gió Hú',
+    author: 'Emily Bronte',
+    category: 'Văn học',
+    price: 105000,
+    discountPrice: 85000,
+    stock: 115,
+    description: 'Mối tình cuồng loạn, bi thương và đầy hận thù giữa Heathcliff và Catherine giữa vùng đồng hoang nước Anh.',
+  },
+  {
+    title: 'Bến Không Chồng',
+    author: 'Dương Hướng',
+    category: 'Văn học',
+    price: 92000,
+    discountPrice: 75000,
+    stock: 70,
+    description: 'Bức tranh nông thôn miền Bắc thời hậu chiến với số phận nghẹn ngào của những người phụ nữ chờ chồng.',
+  },
+  {
+    title: 'Nỗi Buồn Chiến Tranh',
+    author: 'Bảo Ninh',
+    category: 'Văn học',
+    price: 115000,
+    discountPrice: 95000,
+    stock: 85,
+    description: 'Tiểu thuyết tái hiện chiến tranh từ góc nhìn tâm lý đầy chân thực và day dứt của người lính trở về.',
+  },
+  {
+    title: 'Chí Phèo',
+    author: 'Nam Cao',
+    category: 'Văn học',
+    price: 58000,
+    discountPrice: 48000,
+    stock: 190,
+    description: 'Tuyển tập truyện ngắn hiện thực phê phán xuất sắc nhất của Nam Cao về thân phận người nông dân nghèo.',
+  },
+  {
+    title: 'Tắt Đèn',
+    author: 'Ngô Tất Tố',
+    category: 'Văn học',
+    price: 62000,
+    discountPrice: 50000,
+    stock: 130,
+    description: 'Hình tượng chị Dậu kiên cường đại diện cho vẻ đẹp và sức phản kháng mãnh liệt của phụ nữ nông thôn.',
+  },
+  {
+    title: 'Cánh Đồng Bất Tận',
+    author: 'Nguyễn Ngọc Tư',
+    category: 'Văn học',
+    price: 89000,
+    discountPrice: 72000,
+    stock: 140,
+    description: 'Vẻ đẹp u hoài và những mảnh đời trôi dạt trên sông nước miền Tây qua ngòi bút Nam Bộ chân chất.',
+  },
+
+  // ─── THIẾU NHI (15) ────────────────────────────────────────────────
+  {
+    title: 'Harry Potter và Hòn Đá Phù Thủy',
+    author: 'J.K. Rowling',
+    category: 'Thiếu nhi',
+    price: 135000,
+    discountPrice: 115000,
+    stock: 150,
+    description: 'Khởi đầu huyền thoại đưa cậu bé Harry Potter bước vào trường phù thủy Hogwarts kỳ diệu.',
+    isFlashSale: true,
+    flashSaleDiscount: 35,
+  },
+  {
+    title: 'Harry Potter và Phòng Chứa Bí Mật',
+    author: 'J.K. Rowling',
+    category: 'Thiếu nhi',
+    price: 145000,
+    discountPrice: 125000,
+    stock: 120,
+    description: 'Năm học thứ hai đầy bí ẩn với lời nguyền rùng rợn và con quái vật cổ xưa trong lòng lâu đài.',
+  },
+  {
+    title: 'Harry Potter và Tên Tù Nhân Azkaban',
+    author: 'J.K. Rowling',
+    category: 'Thiếu nhi',
+    price: 165000,
+    discountPrice: 139000,
+    stock: 110,
+    description: 'Sự xuất hiện của giám ngục Azkaban và bí mật kinh hoàng về quá khứ của người cha đỡ đầu Sirius Black.',
+  },
+  {
+    title: 'Hoàng Tử Bé',
+    author: 'Antoine de Saint-Exupéry',
+    category: 'Thiếu nhi',
+    price: 75000,
+    discountPrice: 59000,
+    stock: 300,
+    description: 'Câu chuyện ngụ ngôn giàu chất thơ về tình bạn, tình yêu và ý nghĩa đích thực của những điều vô hình.',
+  },
+  {
+    title: 'Chuyện Con Mèo Dạy Hải Âu Bay',
+    author: 'Luis Sepúlveda',
+    category: 'Thiếu nhi',
+    price: 65000,
+    discountPrice: 52000,
+    stock: 220,
+    description: 'Bài học cảm động về việc giữ lời hứa, lòng trắc ẩn và tình yêu thương vượt qua mọi giống loài.',
+  },
+  {
+    title: 'Những Cuộc Phiêu Lưu Của Tom Sawyer',
+    author: 'Mark Twain',
+    category: 'Thiếu nhi',
+    price: 85000,
+    discountPrice: 69000,
+    stock: 95,
+    description: 'Thế giới tuổi thơ phiêu lưu nghịch ngợm bên bờ sông Mississippi của cậu bé Tom Sawyer.',
+  },
+  {
+    title: 'Đất Rừng Phương Nam',
+    author: 'Đoàn Giỏi',
+    category: 'Thiếu nhi',
+    price: 110000,
+    discountPrice: 89000,
+    stock: 170,
+    description: 'Hành trình lưu lạc của cậu bé An khám phá thiên nhiên hoang dã và nghĩa khí con người Nam Bộ.',
+  },
+  {
+    title: 'Tuổi Thơ Dữ Dội',
+    author: 'Phùng Quán',
+    category: 'Thiếu nhi',
+    price: 175000,
+    discountPrice: 145000,
+    stock: 130,
+    description: 'Bản hùng ca đầy nước mắt về những chú bé liên lạc kiên cường của Trung đoàn Trần Cao Vân.',
+  },
+  {
+    title: 'Không Gia Đình',
+    author: 'Hector Malot',
+    category: 'Thiếu nhi',
+    price: 145000,
+    discountPrice: 119000,
+    stock: 160,
+    description: 'Cuộc phiêu lưu gian truân nhưng ấm áp tình người của cậu bé Rémi và gánh xiếc rong cụ Vitalis.',
+  },
+  {
+    title: 'Trong Gia Đình',
+    author: 'Hector Malot',
+    category: 'Thiếu nhi',
+    price: 120000,
+    discountPrice: 99000,
+    stock: 80,
+    description: 'Hành trình vượt lên nghịch cảnh bằng sự thông minh và lòng quả cảm của cô bé mồ côi Perrine.',
+  },
+  {
+    title: 'Alice Ở Xứ Sở Thần Tiên',
+    author: 'Lewis Carroll',
+    category: 'Thiếu nhi',
+    price: 78000,
+    discountPrice: 62000,
+    stock: 140,
+    description: 'Chuyến phiêu lưu kỳ ảo xuống hang thỏ đưa cô bé Alice gặp gỡ những sinh vật kỳ lạ nhất trần đời.',
+  },
+  {
+    title: 'Peter Pan',
+    author: 'J.M. Barrie',
+    category: 'Thiếu nhi',
+    price: 72000,
+    discountPrice: 58000,
+    stock: 110,
+    description: 'Cậu bé không bao giờ lớn và chuyến bay đến hòn đảo Neverland ngập tràn phép màu.',
+  },
+  {
+    title: 'Nhật Ký Chú Bé Nhút Nhát',
+    author: 'Jeff Kinney',
+    category: 'Thiếu nhi',
+    price: 90000,
+    discountPrice: 75000,
+    stock: 200,
+    description: 'Những mẩu chuyện học đường hài hước cười ra nước mắt của chú bé trung học Greg Heffley.',
+  },
+  {
+    title: 'Pippi Tất Dài',
+    author: 'Astrid Lindgren',
+    category: 'Thiếu nhi',
+    price: 82000,
+    discountPrice: 68000,
+    stock: 90,
+    description: 'Cô bé tóc đỏ khỏe nhất thế giới với lối sống tự do tự tại khiến mọi quy tắc người lớn đảo lộn.',
+  },
+  {
+    title: 'Gió Qua Rặng Liễu',
+    author: 'Kenneth Grahame',
+    category: 'Thiếu nhi',
+    price: 98000,
+    discountPrice: 80000,
+    stock: 85,
+    description: 'Tác phẩm thiếu nhi kinh điển của nước Anh ngập tràn tình bạn ấm áp giữa Chuột Chũi, Chuột Nước và Cóc.',
+  },
+
+  // ─── KỸ NĂNG SỐNG (15) ─────────────────────────────────────────────
+  {
+    title: 'Đắc Nhân Tâm',
+    author: 'Dale Carnegie',
+    category: 'Kỹ năng sống',
+    price: 86000,
+    discountPrice: 69000,
+    stock: 400,
+    description: 'Cuốn sách nghệ thuật thu phục lòng người và giao tiếp ứng xử bán chạy nhất mọi thời đại.',
+    isFlashSale: true,
+    flashSaleDiscount: 45,
+  },
+  {
+    title: 'Atomic Habits (Thói Quen Nguyên Tử)',
+    author: 'James Clear',
+    category: 'Kỹ năng sống',
+    price: 189000,
+    discountPrice: 159000,
+    stock: 280,
+    description: 'Phương pháp khoa học xây dựng thói quen tốt và loại bỏ thói quen xấu thông qua thay đổi 1% mỗi ngày.',
+    isFlashSale: true,
+    flashSaleDiscount: 30,
+  },
+  {
+    title: 'Tư Duy Nhanh Và Chậm',
+    author: 'Daniel Kahneman',
+    category: 'Kỹ năng sống',
+    price: 199000,
+    discountPrice: 169000,
+    stock: 120,
+    description: 'Công trình đoạt giải Nobel khám phá hai hệ thống tư duy chi phối mọi quyết định của con người.',
+  },
+  {
+    title: 'Quẳng Gánh Lo Đi Và Vui Sống',
+    author: 'Dale Carnegie',
+    category: 'Kỹ năng sống',
+    price: 85000,
+    discountPrice: 68000,
+    stock: 210,
+    description: 'Những lời khuyên thực tế giúp bạn chế ngự sự sợ hãi, lo âu và tìm thấy bình an trong tâm hồn.',
+  },
+  {
+    title: '7 Thói Quen Của Người Thành Đạt',
+    author: 'Stephen R. Covey',
+    category: 'Kỹ năng sống',
+    price: 175000,
+    discountPrice: 145000,
+    stock: 190,
+    description: 'Nguyên tắc quản trị cuộc đời và phát triển năng lực lãnh đạo toàn diện từ sâu bên trong.',
+  },
+  {
+    title: 'Sức Mạnh Của Hiện Tại',
+    author: 'Eckhart Tolle',
+    category: 'Kỹ năng sống',
+    price: 120000,
+    discountPrice: 99000,
+    stock: 160,
+    description: 'Chỉ dẫn tâm linh đưa bạn thoát khỏi gông cùm của quá khứ và tương lai để sống trọn vẹn trong phút giây này.',
+  },
+  {
+    title: 'Rèn Luyện Tư Duy Phản Biện',
+    author: 'Albert Rutherford',
+    category: 'Kỹ năng sống',
+    price: 110000,
+    discountPrice: 89000,
+    stock: 130,
+    description: 'Kỹ năng nhận diện ngụy biện, đánh giá thông tin khách quan và đưa ra lập luận chặt chẽ.',
+  },
+  {
+    title: 'Đi Tìm Lẽ Sống',
+    author: 'Viktor Frankl',
+    category: 'Kỹ năng sống',
+    price: 95000,
+    discountPrice: 79000,
+    stock: 240,
+    description: 'Bài học đắt giá về ý chí sinh tồn và tìm kiếm ý nghĩa cuộc đời từ địa ngục trại tập trung Auschwitz.',
+  },
+  {
+    title: 'Dám Bị Ghét',
+    author: 'Kishimi Ichiro, Koga Fumitake',
+    category: 'Kỹ năng sống',
+    price: 115000,
+    discountPrice: 92000,
+    stock: 180,
+    description: 'Triết học Adler khai phóng tâm trí giúp bạn can đảm sống cuộc đời của chính mình mà không sợ người khác phán xét.',
+  },
+  {
+    title: 'Tâm Lý Học Về Tiền',
+    author: 'Morgan Housel',
+    category: 'Kỹ năng sống',
+    price: 165000,
+    discountPrice: 135000,
+    stock: 250,
+    description: 'Bản chất hành vi của con người trước đồng tiền quan trọng hơn rất nhiều so với sự thông minh số học.',
+    isFlashSale: true,
+    flashSaleDiscount: 40,
+  },
+  {
+    title: 'Lối Sống Tối Giản Của Người Nhật',
+    author: 'Sasaki Fumio',
+    category: 'Kỹ năng sống',
+    price: 98000,
+    discountPrice: 79000,
+    stock: 150,
+    description: 'Bỏ bớt đồ đạc dư thừa để nhường chỗ cho niềm vui, tự do và sự thanh thản nội tâm.',
+  },
+  {
+    title: 'Nghệ Thuật Tinh Tế Của Việc Đếch Quan Tâm',
+    author: 'Mark Manson',
+    category: 'Kỹ năng sống',
+    price: 125000,
+    discountPrice: 105000,
+    stock: 170,
+    description: 'Cách nhìn thẳng thắn và hài hước giúp bạn chọn lọc điều gì thực sự xứng đáng để bận tâm.',
+  },
+  {
+    title: 'Đọc Vị Bất Kỳ Ai',
+    author: 'David J. Lieberman',
+    category: 'Kỹ năng sống',
+    price: 88000,
+    discountPrice: 72000,
+    stock: 130,
+    description: 'Thấu hiểu suy nghĩ và động cơ tiềm ẩn của đối phương trong các mối quan hệ và thương lượng.',
+  },
+  {
+    title: 'Tuổi Trẻ Đáng Giá Bao Nhiêu',
+    author: 'Rosie Nguyễn',
+    category: 'Kỹ năng sống',
+    price: 85000,
+    discountPrice: 68000,
+    stock: 310,
+    description: 'Cẩm nang truyền cảm hứng tự học, rèn luyện kỹ năng và tìm kiếm đam mê đích thực cho người trẻ.',
+  },
+  {
+    title: 'Khi Hơi Thở Hóa Thinh Không',
+    author: 'Paul Kalanithi',
+    category: 'Kỹ năng sống',
+    price: 110000,
+    discountPrice: 89000,
+    stock: 140,
+    description: 'Hồi ký xúc động của bác sĩ phẫu thuật thần kinh đối diện với căn bệnh ung thư phổi giai đoạn cuối.',
+  },
+
+  // ─── KINH TẾ (15) ──────────────────────────────────────────────────
+  {
+    title: 'Nghĩ Giàu Làm Giàu',
+    author: 'Napoleon Hill',
+    category: 'Kinh tế',
+    price: 98000,
+    discountPrice: 79000,
+    stock: 220,
+    description: '13 nguyên tắc vàng tạo dựng của cải và thành công tài chính từ nghiên cứu 500 triệu phú hàng đầu thế giới.',
+  },
+  {
+    title: 'Cha Giàu Cha Nghèo',
+    author: 'Robert T. Kiyosaki',
+    category: 'Kinh tế',
+    price: 95000,
+    discountPrice: 76000,
+    stock: 260,
+    description: 'Tư duy về tài sản và tiêu sản giúp bạn thoát khỏi vòng xoáy Rat Race để đạt được tự do tài chính.',
+    isFlashSale: true,
+    flashSaleDiscount: 35,
+  },
+  {
+    title: 'Nhà Đầu Tư Thông Minh',
+    author: 'Benjamin Graham',
+    category: 'Kinh tế',
+    price: 250000,
+    discountPrice: 210000,
+    stock: 90,
+    description: 'Kinh thánh của phương pháp đầu tư giá trị được huyền thoại Warren Buffett coi là cuốn sách hay nhất về đầu tư.',
+  },
+  {
+    title: 'Khởi Nghiệp Tinh Gọn',
+    author: 'Eric Ries',
+    category: 'Kinh tế',
+    price: 145000,
+    discountPrice: 119000,
+    stock: 110,
+    description: 'Quy trình thử nghiệm giả thuyết, đo lường và lặp lại liên tục giúp startup sống sót và phát triển bền vững.',
+  },
+  {
+    title: 'Chiến Lược Đại Dương Xanh',
+    author: 'W. Chan Kim, Renée Mauborgne',
+    category: 'Kinh tế',
+    price: 165000,
+    discountPrice: 135000,
+    stock: 85,
+    description: 'Cách tạo ra khoảng trống thị trường chưa ai khai phá để vô hiệu hóa đối thủ cạnh tranh.',
+  },
+  {
+    title: 'Kinh Tế Học Hài Hước',
+    author: 'Steven D. Levitt, Stephen J. Dubner',
+    category: 'Kinh tế',
+    price: 115000,
+    discountPrice: 95000,
+    stock: 120,
+    description: 'Dùng công cụ kinh tế lượng để khám phá những bí mật thú vị phía sau các hiện tượng xã hội kỳ quặc.',
+  },
+  {
+    title: 'Từ Tốt Đến Vĩ Đại',
+    author: 'Jim Collins',
+    category: 'Kinh tế',
+    price: 160000,
+    discountPrice: 130000,
+    stock: 140,
+    description: 'Nghiên cứu sâu sắc lý giải vì sao một số công ty có thể bứt phá trở thành vĩ đại còn số khác thì không.',
+  },
+  {
+    title: 'Cổ Phiếu Thường, Lợi Nhuận Phi Thường',
+    author: 'Philip A. Fisher',
+    category: 'Kinh tế',
+    price: 135000,
+    discountPrice: 112000,
+    stock: 75,
+    description: 'Phương pháp chọn cổ phiếu tăng trưởng và triết lý nắm giữ dài hạn của một trong những nhà đầu tư vĩ đại nhất.',
+  },
+  {
+    title: 'Dốc Hết Trái Tim',
+    author: 'Howard Schultz',
+    category: 'Kinh tế',
+    price: 125000,
+    discountPrice: 99000,
+    stock: 95,
+    description: 'Hành trình xây dựng đế chế cà phê Starbucks từ một cửa hàng nhỏ bên bờ biển Seattle.',
+  },
+  {
+    title: 'Nguyên Tắc Của Ray Dalio',
+    author: 'Ray Dalio',
+    category: 'Kinh tế',
+    price: 320000,
+    discountPrice: 265000,
+    stock: 65,
+    description: 'Các nguyên tắc sống và làm việc đã giúp Ray Dalio xây dựng quỹ đầu cơ Bridgewater Associates lớn nhất thế giới.',
+  },
+  {
+    title: 'Bước Đi Ngẫu Nhiên Trên Phố Wall',
+    author: 'Burton G. Malkiel',
+    category: 'Kinh tế',
+    price: 195000,
+    discountPrice: 165000,
+    stock: 80,
+    description: 'Lý thuyết thị trường hiệu quả và lời khuyên đầu tư chỉ số an toàn cho mọi cá nhân.',
+  },
+  {
+    title: 'Chiến Tranh Tiền Tệ',
+    author: 'Song Hongbing',
+    category: 'Kinh tế',
+    price: 175000,
+    discountPrice: 145000,
+    stock: 100,
+    description: 'Cuộc chiến ngầm đằng sau các biến cố tài chính và quyền lực thao túng của các gia tộc ngân hàng quốc tế.',
+  },
+  {
+    title: 'Bí Mật Tư Duy Triệu Phú',
+    author: 'T. Harv Eker',
+    category: 'Kinh tế',
+    price: 95000,
+    discountPrice: 78000,
+    stock: 230,
+    description: 'Cài đặt lại nhiệt kế tài chính trong tâm thức để thu hút tiền bạc và sự thịnh vượng.',
+  },
+  {
+    title: 'Phù Thủy Sàn Chứng Khoán',
+    author: 'Jack D. Schwager',
+    category: 'Kinh tế',
+    price: 210000,
+    discountPrice: 175000,
+    stock: 70,
+    description: 'Phỏng vấn những nhà giao dịch huyền thoại tiết lộ chiến lược đầu cơ và kiểm soát tâm lý giao dịch đỉnh cao.',
+  },
+  {
+    title: 'Lập Kế Hoạch Kinh Doanh Hiệu Quả',
+    author: 'Brian Finch',
+    category: 'Kinh tế',
+    price: 88000,
+    discountPrice: 70000,
+    stock: 110,
+    description: 'Hướng dẫn từng bước xây dựng một bản kế hoạch kinh doanh thuyết phục nhà đầu tư và ngân hàng.',
+  },
+
+  // ─── KHOA HỌC (12) ─────────────────────────────────────────────────
+  {
+    title: 'Sapiens: Lược Sử Loài Người',
+    author: 'Yuval Noah Harari',
+    category: 'Khoa học',
+    price: 229000,
+    discountPrice: 189000,
+    stock: 190,
+    description: 'Toàn cảnh hành trình tiến hóa của loài người từ sinh vật tầm thường trở thành bá chủ hành tinh.',
+    isFlashSale: true,
+    flashSaleDiscount: 40,
+  },
+  {
+    title: 'Homo Deus: Lược Sử Tương Lai',
+    author: 'Yuval Noah Harari',
+    category: 'Khoa học',
+    price: 235000,
+    discountPrice: 195000,
+    stock: 150,
+    description: 'Dự báo về số phận nhân loại trong kỷ nguyên trí tuệ nhân tạo và công nghệ sinh học.',
+  },
+  {
+    title: '21 Bài Học Cho Thế Kỷ 21',
+    author: 'Yuval Noah Harari',
+    category: 'Khoa học',
+    price: 215000,
+    discountPrice: 179000,
+    stock: 130,
+    description: 'Những thách thức cấp bách nhất mà con người phải đối mặt trước làn sóng công nghệ và khủng hoảng chính trị.',
+  },
+  {
+    title: 'Lược Sử Thời Gian',
+    author: 'Stephen Hawking',
+    category: 'Khoa học',
+    price: 120000,
+    discountPrice: 99000,
+    stock: 140,
+    description: 'Khám phá bí ẩn vụ nổ Big Bang, hố đen vũ trụ và bản chất của thời gian qua ngòi bút thiên tài Stephen Hawking.',
+  },
+  {
+    title: 'Vũ Trụ Trong Vỏ Hạt Dẻ',
+    author: 'Stephen Hawking',
+    category: 'Khoa học',
+    price: 155000,
+    discountPrice: 129000,
+    stock: 90,
+    description: 'Minh họa trực quan sinh động về thuyết lượng tử, đa chiều không gian và thuyết vạn vật M-theory.',
+  },
+  {
+    title: 'Cosmos (Vũ Trụ)',
+    author: 'Carl Sagan',
+    category: 'Khoa học',
+    price: 240000,
+    discountPrice: 199000,
+    stock: 85,
+    description: 'Bản trường ca tuyệt mỹ về vị thế con người trong vũ trụ bao la của nhà thiên văn học Carl Sagan.',
+  },
+  {
+    title: 'Nguồn Gốc Các Loài',
+    author: 'Charles Darwin',
+    category: 'Khoa học',
+    price: 180000,
+    discountPrice: 149000,
+    stock: 65,
+    description: 'Công trình khoa học làm thay đổi toàn bộ nhận thức nhân loại về chọn lọc tự nhiên và tiến hóa.',
+  },
+  {
+    title: 'Bản Thiết Kế Vĩ Đại',
+    author: 'Stephen Hawking, Leonard Mlodinow',
+    category: 'Khoa học',
+    price: 110000,
+    discountPrice: 92000,
+    stock: 80,
+    description: 'Giải thích sự hình thành vũ trụ dựa trên các định luật vật lý mà không cần đến sự can thiệp của đấng tạo hóa.',
+  },
+  {
+    title: 'Trật Tự Của Thời Gian',
+    author: 'Carlo Rovelli',
+    category: 'Khoa học',
+    price: 115000,
+    discountPrice: 95000,
+    stock: 75,
+    description: 'Chất thơ trong vật lý hiện đại hé lộ thời gian chỉ là ảo ảnh sinh ra từ sự hữu hạn của nhận thức con người.',
+  },
+  {
+    title: 'Gen Vị Kỷ',
+    author: 'Richard Dawkins',
+    category: 'Khoa học',
+    price: 195000,
+    discountPrice: 165000,
+    stock: 80,
+    description: 'Góc nhìn đột phá xem gen là đơn vị chọn lọc tự nhiên cốt lõi chi phối toàn bộ hành vi sinh giới.',
+  },
+  {
+    title: 'Sáu Mảnh Ghép Dễ Dàng',
+    author: 'Richard Feynman',
+    category: 'Khoa học',
+    price: 85000,
+    discountPrice: 69000,
+    stock: 110,
+    description: 'Bài giảng vật lý kinh điển về nguyên tử, năng lượng và hấp dẫn từ nhà vật lý đoạt giải Nobel dí dỏm.',
+  },
+  {
+    title: 'Vật Lý Thiên Văn Cho Người Vội Vã',
+    author: 'Neil deGrasse Tyson',
+    category: 'Khoa học',
+    price: 90000,
+    discountPrice: 75000,
+    stock: 160,
+    description: 'Tóm lược dễ hiểu và hóm hỉnh về cơ học lượng tử, vật chất tối và năng lượng tối cho người bận rộn.',
+  },
+
+  // ─── CÔNG NGHỆ (13) ────────────────────────────────────────────────
+  {
+    title: 'Clean Code',
+    author: 'Robert C. Martin',
+    category: 'Công nghệ',
+    price: 450000,
+    discountPrice: 380000,
+    stock: 95,
+    description: 'Cẩm nang kinh điển hướng dẫn kỹ thuật viết mã sạch, dễ đọc, dễ bảo trì cho mọi kỹ sư phần mềm.',
+  },
+  {
+    title: 'The Pragmatic Programmer',
+    author: 'Andrew Hunt, David Thomas',
+    category: 'Công nghệ',
+    price: 520000,
+    discountPrice: 440000,
+    stock: 75,
+    description: 'Những nguyên tắc thực hành vượt thời gian giúp một lập trình viên trở thành chuyên gia tinh hoa.',
+  },
+  {
+    title: 'Clean Architecture',
+    author: 'Robert C. Martin',
+    category: 'Công nghệ',
+    price: 480000,
+    discountPrice: 410000,
+    stock: 80,
+    description: 'Nguyên tắc thiết kế kiến trúc phần mềm tách biệt dependency, dễ kiểm thử và độc lập với framework.',
+  },
+  {
+    title: 'Design Patterns',
+    author: 'Erich Gamma, Richard Helm, Ralph Johnson, John Vlissides',
+    category: 'Công nghệ',
+    price: 560000,
+    discountPrice: 490000,
+    stock: 60,
+    description: 'Cuốn sách huyền thoại của nhóm Gang of Four (GoF) định hình 23 mẫu thiết kế hướng đối tượng chuẩn mực.',
+  },
+  {
+    title: 'Refactoring (Tái Cấu Trúc Mã Nguồn)',
+    author: 'Martin Fowler',
+    category: 'Công nghệ',
+    price: 490000,
+    discountPrice: 420000,
+    stock: 70,
+    description: 'Phương pháp cải tiến thiết kế của mã nguồn hiện có mà không làm thay đổi hành vi bên ngoài.',
+  },
+  {
+    title: 'Designing Data-Intensive Applications',
+    author: 'Martin Kleppmann',
+    category: 'Công nghệ',
+    price: 650000,
+    discountPrice: 560000,
+    stock: 85,
+    description: 'Kiệt tác phân tích sâu sắc về hệ thống phân tán, replication, partitioning, consistency và transactions.',
+  },
+  {
+    title: 'Trí Tuệ Nhân Tạo: Cách Tiếp Cận Hiện Đại',
+    author: 'Stuart Russell, Peter Norvig',
+    category: 'Công nghệ',
+    price: 590000,
+    discountPrice: 510000,
+    stock: 50,
+    description: 'Giáo trình chuẩn mực toàn cầu giảng dạy về giải thuật tìm kiếm, logic, xác suất và machine learning.',
+  },
+  {
+    title: 'Deep Learning Căn Bản',
+    author: 'Ian Goodfellow, Yoshua Bengio',
+    category: 'Công nghệ',
+    price: 540000,
+    discountPrice: 460000,
+    stock: 55,
+    description: 'Cơ sở toán học và kiến trúc mạng nơ-ron tích chập (CNN), tái hồi (RNN) cho mô hình học sâu.',
+  },
+  {
+    title: 'Lập Trình Hướng Đối Tượng Với TypeScript',
+    author: 'Boris Cherny',
+    category: 'Công nghệ',
+    price: 380000,
+    discountPrice: 320000,
+    stock: 120,
+    description: 'Tận dụng tối đa sức mạnh của hệ thống type an toàn và tính năng nâng cao trong hệ sinh thái JavaScript.',
+  },
+  {
+    title: 'Docker Deep Dive',
+    author: 'Nigel Poulton',
+    category: 'Công nghệ',
+    price: 390000,
+    discountPrice: 330000,
+    stock: 110,
+    description: 'Khám phá container runtime, image layering, networking và lưu trữ dữ liệu với Docker từ cơ bản đến nâng cao.',
+  },
+  {
+    title: 'Kubernetes Up & Running',
+    author: 'Kelsey Hightower, Brendan Burns',
+    category: 'Công nghệ',
+    price: 420000,
+    discountPrice: 360000,
+    stock: 80,
+    description: 'Thực hành điều phối cụm container quy mô lớn với Pod, Deployment, Service và Ingress.',
+  },
+  {
+    title: 'Microservices Patterns',
+    author: 'Chris Richardson',
+    category: 'Công nghệ',
+    price: 580000,
+    discountPrice: 490000,
+    stock: 65,
+    description: 'Các mẫu thiết kế phân rã dịch vụ, Saga pattern, CQRS, Event-Driven và quản lý dữ liệu phân tán.',
+  },
+  {
+    title: 'System Design Interview',
+    author: 'Alex Xu',
+    category: 'Công nghệ',
+    price: 450000,
+    discountPrice: 390000,
+    stock: 150,
+    description: 'Cẩm nang thiết kế hệ thống chịu tải cao: Rate Limiter, Cache, Web Crawler, Chat App và Video Streaming.',
+  },
+
+  // ─── TRINH THÁM (10) ───────────────────────────────────────────────
+  {
+    title: 'Sherlock Holmes Toàn Tập',
+    author: 'Arthur Conan Doyle',
+    category: 'Trinh thám',
+    price: 280000,
+    discountPrice: 230000,
+    stock: 110,
+    description: 'Tuyển tập trọn bộ các vụ án ly kỳ được giải mã tài tình bởi vị thám tử lập dị phố Baker.',
+    isFlashSale: true,
+    flashSaleDiscount: 35,
+  },
+  {
+    title: 'Mười Người Da Đen Nhỏ',
+    author: 'Agatha Christie',
+    category: 'Trinh thám',
+    price: 115000,
+    discountPrice: 95000,
+    stock: 130,
+    description: 'Vụ thảm sát bí ẩn trên đảo hoang theo bài đồng dao rùng rợn không một dấu vết kẻ thủ ác.',
+  },
+  {
+    title: 'Án Mạng Trên Chuyến Tàu Tốc Hành Phương Đông',
+    author: 'Agatha Christie',
+    category: 'Trinh thám',
+    price: 110000,
+    discountPrice: 89000,
+    stock: 140,
+    description: 'Vụ án bí ẩn trên chuyến tàu tuyết cô lập thử thách trí tuệ siêu phàm của thám tử Hercule Poirot.',
+  },
+  {
+    title: 'Vụ Án Mạng Của Roger Ackroyd',
+    author: 'Agatha Christie',
+    category: 'Trinh thám',
+    price: 105000,
+    discountPrice: 85000,
+    stock: 95,
+    description: 'Tác phẩm trinh thám đột phá với cú twist chấn động làm thay đổi vĩnh viễn cấu trúc tiểu thuyết giật gân.',
+  },
+  {
+    title: 'Phía Sau Nghi Can X',
+    author: 'Keigo Higashino',
+    category: 'Trinh thám',
+    price: 125000,
+    discountPrice: 105000,
+    stock: 180,
+    description: 'Cuộc đấu trí nghẹt thở và tình yêu câm lặng của thiên tài toán học Ishigami để bảo vệ người phụ nữ anh yêu.',
+    isFlashSale: true,
+    flashSaleDiscount: 45,
+  },
+  {
+    title: 'Bạch Dạ Hành',
+    author: 'Keigo Higashino',
+    category: 'Trinh thám',
+    price: 175000,
+    discountPrice: 145000,
+    stock: 120,
+    description: 'Mối liên kết đen tối và đau lòng kéo dài 19 năm của hai đứa trẻ bước đi dưới ánh mặt trời đêm trắng.',
+  },
+  {
+    title: 'Sự Cứu Rỗi Của Kẻ Sát Nhân',
+    author: 'Keigo Higashino',
+    category: 'Trinh thám',
+    price: 135000,
+    discountPrice: 112000,
+    stock: 105,
+    description: 'Một tội ác hoàn hảo bằng thạch tín được che giấu tinh vi khiến cảnh sát bế tắc suốt thời gian dài.',
+  },
+  {
+    title: 'Cô Gái Có Hình Xăm Rồng',
+    author: 'Stieg Larsson',
+    category: 'Trinh thám',
+    price: 195000,
+    discountPrice: 165000,
+    stock: 80,
+    description: 'Cuộc điều tra vụ mất tích bí ẩn 40 năm trước cùng sự phối hợp giữa nhà báo Mikael và nữ hacker Lisbeth Salander.',
+  },
+  {
+    title: 'Hỏa Ngục (Inferno)',
+    author: 'Dan Brown',
+    category: 'Trinh thám',
+    price: 165000,
+    discountPrice: 135000,
+    stock: 90,
+    description: 'Giáo sư Robert Langdon giải mã những manh mối ẩn trong kiệt tác Thần Khúc của Dante để ngăn thảm họa toàn cầu.',
+  },
+  {
+    title: 'Mật Mã Da Vinci',
+    author: 'Dan Brown',
+    category: 'Trinh thám',
+    price: 170000,
+    discountPrice: 139000,
+    stock: 160,
+    description: 'Những biểu tượng huyền bí trong tranh Leonardo Da Vinci dẫn đến một bí mật lịch sử gây chấn động tôn giáo.',
+  },
+];
+
+async function seed() {
+  console.log(`🚀 Bắt đầu quá trình seed ${RAW_BOOKS.length} cuốn sách...`);
+
+  await mongoose.connect(process.env.MONGO_URI);
+  console.log('✅ Đã kết nối MongoDB Atlas (bookstore_products)');
+
+  // Xóa sạch sách cũ trong product DB
+  await Book.deleteMany({});
+  console.log('🗑️  Đã làm sạch collection books');
+
+  const now = Date.now();
+  const ONE_DAY = 24 * 60 * 60 * 1000;
+
+  const formattedBooks = RAW_BOOKS.map((item, index) => {
+    const cover = item.coverImage || sampleCovers[index % sampleCovers.length];
+    const isFlashSale = Boolean(item.isFlashSale);
+
+    const bookObj = {
+      ...item,
+      coverImage: cover,
+      ratingsAverage: Number((4.2 + (index % 8) * 0.1).toFixed(1)),
+      ratingsQuantity: 15 + ((index * 13) % 250),
+      createdAt: new Date(now - index * 3600 * 1000),
+    };
+
+    if (isFlashSale) {
+      bookObj.flashSaleStartDate = new Date(now - ONE_DAY);
+      bookObj.flashSaleEndDate = new Date(now + 2 * ONE_DAY);
+      bookObj.flashSaleDiscount = item.flashSaleDiscount || 40;
+    } else {
+      bookObj.isFlashSale = false;
+    }
+
+    return bookObj;
+  });
+
+  const inserted = await Book.insertMany(formattedBooks);
+  console.log(`📚 Đã lưu thành công ${inserted.length} cuốn sách vào MongoDB Atlas!`);
+
+  // Đồng bộ lên Meilisearch trên GCP VM
+  console.log('🔍 Đang đồng bộ toàn bộ sách lên Meilisearch GCP VM...');
+  await connectMeili();
+  const index = getMeiliIndex();
+  try {
+    await index.deleteAllDocuments();
+  } catch (err) {
+    console.warn('Lưu ý khi xóa documents Meili:', err.message);
+  }
+  await indexBooks(inserted);
+  console.log(`✅ Đã index ${inserted.length} sách lên Meilisearch (index=books)`);
+
+  // Xóa / Bump Cache trên Upstash Redis
+  console.log('⚡ Đang làm mới bộ nhớ đệm Upstash Redis...');
+  const redis = connectRedis();
+  if (redis) {
+    try {
+      await bumpCatalog();
+      // Xóa các key cache cũ
+      const keys = await redis.keys('book:*');
+      if (keys.length > 0) {
+        await redis.del(...keys);
+      }
+      console.log('✅ Đã xóa cache cũ và tăng catalog:v thành công!');
+    } catch (err) {
+      console.warn('Lỗi làm mới Redis:', err.message);
+    }
+  }
+
+  console.log('───────────────────────────────────────────────────────');
+  console.log(`🎉 HOÀN TẤT SEED: ${inserted.length} cuốn sách đã sẵn sàng!`);
+  console.log('───────────────────────────────────────────────────────');
+
+  await mongoose.disconnect();
+  if (redis) redis.quit();
+  process.exit(0);
+}
+
+seed().catch((err) => {
+  console.error('❌ Lỗi seed:', err);
+  process.exit(1);
+});
