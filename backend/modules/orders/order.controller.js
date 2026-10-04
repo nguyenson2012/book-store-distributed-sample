@@ -1,14 +1,10 @@
 import Order, { ORDER_STATUS } from './order.model.js';
 import Cart from '../cart/cart.model.js';
-import Book from '../books/book.model.js';
 import AppError from '../../utils/AppError.js';
 import catchAsync from '../../utils/catchAsync.js';
 import notificationService from '../notifications/notification.service.js';
 import { publishEvent } from '../../utils/rabbitmq.js';
-
-// Hoàn lại tồn kho cho danh sách item (dùng khi rollback hoặc hủy đơn)
-const restoreStock = (items) =>
-  Promise.all(items.map((i) => Book.updateOne({ _id: i.bookId }, { $inc: { stock: i.quantity } })));
+import { reserveStock, restoreStock } from '../../utils/productClient.js';
 
 /** POST /api/v1/orders  — tạo đơn từ giỏ hàng hiện tại */
 export const createOrder = catchAsync(async (req, res) => {
@@ -18,26 +14,20 @@ export const createOrder = catchAsync(async (req, res) => {
   const cart = await Cart.findOne({ userId: req.user.id });
   if (!cart || cart.items.length === 0) throw new AppError('Giỏ hàng đang trống', 400);
 
-  const reserved = []; // các item đã trừ kho thành công (để rollback nếu lỗi)
+  let reserved = [];
   const orderItems = [];
 
   try {
-    for (const item of cart.items) {
-      // Trừ kho nguyên tử: chỉ thành công nếu stock còn đủ
-      const book = await Book.findOneAndUpdate(
-        { _id: item.bookId, stock: { $gte: item.quantity } },
-        { $inc: { stock: -item.quantity } },
-        { new: true }
-      );
-      if (!book) throw new AppError('Một số sách đã hết hàng hoặc không đủ số lượng', 400);
+    reserved = await reserveStock(
+      cart.items.map((item) => ({ bookId: item.bookId, quantity: item.quantity }))
+    );
 
-      reserved.push(item);
-      // Giá lấy lại từ DB tại thời điểm đặt hàng để luôn chính xác
+    for (const item of reserved) {
       orderItems.push({
-        bookId: book.id,
-        title: book.title,
+        bookId: item.bookId,
+        title: item.title,
         quantity: item.quantity,
-        price: book.finalPrice,
+        price: item.price,
       });
     }
 
@@ -74,7 +64,7 @@ export const createOrder = catchAsync(async (req, res) => {
 
     res.status(201).json({ status: 'success', data: { order } });
   } catch (err) {
-    await restoreStock(reserved); // rollback kho nếu có bước nào thất bại
+    await restoreStock(reserved);
     throw err;
   }
 });

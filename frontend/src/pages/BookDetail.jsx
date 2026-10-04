@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import api from '../services/api';
+import { catalogApi } from '../services/api';
 import { Cover, useAddToCart } from '../components/BookCard';
 import { errMsg, formatPrice, isBookFlashSaleActive, getBookFinalPrice, getTimeLeft } from '../utils/helpers';
 
@@ -13,7 +13,7 @@ export default function BookDetail() {
   const { add, added } = useAddToCart();
 
   useEffect(() => {
-    api.get(`/books/${id}`)
+    catalogApi.get(`/books/${id}`)
       .then(({ data }) => setBook(data.data.book))
       .catch((e) => setError(errMsg(e)));
   }, [id]);

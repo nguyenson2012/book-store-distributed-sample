@@ -1,0 +1,16 @@
+services:
+  meilisearch:
+    image: getmeili/meilisearch:v1.11
+    container_name: bookstore-meilisearch
+    ports:
+      - "7700:7700"
+    environment:
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-dev_master_key_change_me}
+      MEILI_ENV: development
+      MEILI_MAX_INDEXING_MEMORY: 200Mb
+    volumes:
+      - meili_data:/meili_data
+    restart: unless-stopped
+
+volumes:
+  meili_data:

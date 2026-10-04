@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import api from '../services/api';
+import { catalogApi } from '../services/api';
 import { Cover, useAddToCart } from './BookCard';
 import { formatPrice, getTimeLeft, isBookFlashSaleActive, getBookFinalPrice } from '../utils/helpers';
 
@@ -12,7 +12,7 @@ export default function FlashSaleSection() {
 
   useEffect(() => {
     let ignore = false;
-    api
+    catalogApi
       .get('/books/flash-sale')
       .then(({ data }) => {
         if (ignore) return;
