@@ -8,23 +8,37 @@ import { indexBooks } from './services/search.service.js';
 
 const PORT = process.env.PORT || 5002;
 
-await connectDB();
-connectRedis();
-await connectMeili();
+// 1. Lắng nghe ngay lập tức trên PORT để vượt qua Cloud Run Startup Probe
+const server = app.listen(PORT, () => {
+  console.log(`🚀 Product Service running on port ${PORT}`);
+});
 
-try {
-  const books = await Book.find();
-  if (books.length) {
-    await indexBooks(books);
-    console.log(`🔎 Đã đồng bộ ${books.length} sách lên Meilisearch`);
+// 2. Khởi tạo các kết nối dịch vụ bất đồng bộ (không block startup probe)
+(async () => {
+  try {
+    await connectDB();
+  } catch (err) {
+    console.error('❌ Lỗi kết nối MongoDB:', err.message);
   }
-} catch (err) {
-  console.error('Không reindex lúc start:', err.message);
-}
 
-const server = app.listen(PORT, () => console.log(`🚀 Product Service running on port ${PORT}`));
+  try {
+    connectRedis();
+  } catch (err) {
+    console.error('❌ Lỗi kết nối Redis:', err.message);
+  }
+
+  try {
+    await connectMeili();
+    const books = await Book.find().catch(() => []);
+    if (books.length) {
+      await indexBooks(books);
+      console.log(`🔎 Đã đồng bộ ${books.length} sách lên Meilisearch`);
+    }
+  } catch (err) {
+    console.warn('⚠️ Meilisearch khởi tạo chưa sẵn sàng:', err.message);
+  }
+})();
 
 process.on('unhandledRejection', (err) => {
   console.error('UNHANDLED REJECTION:', err);
-  server.close(() => process.exit(1));
 });
