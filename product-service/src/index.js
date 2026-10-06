@@ -18,7 +18,9 @@ const server = app.listen(PORT, () => {
   try {
     await connectDB();
   } catch (err) {
-    console.error('❌ Lỗi kết nối MongoDB:', err.message);
+    console.error('❌ Lỗi kết nối MongoDB sau các lần thử:', err.message);
+    server.close(() => process.exit(1));
+    return;
   }
 
   try {
