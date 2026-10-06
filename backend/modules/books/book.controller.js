@@ -18,15 +18,26 @@ const proxyPublic = async (req, res, path) => {
   const qs = new URLSearchParams(req.query).toString();
   const url = `${psBase()}/api/v1/books${path}${qs ? `?${qs}` : ''}`;
 
-  const upstream = await fetch(url, {
-    headers: {
-      Authorization: req.headers.authorization || '',
-      'Content-Type': 'application/json',
-    },
-  });
+  try {
+    const upstream = await fetch(url, {
+      headers: {
+        Authorization: req.headers.authorization || '',
+        'Content-Type': 'application/json',
+      },
+      signal: AbortSignal.timeout(5000),
+    });
 
-  const body = await upstream.json();
-  res.status(upstream.status).json(body);
+    if (upstream.ok) {
+      const body = await upstream.json();
+      res.status(upstream.status).json(body);
+      return true;
+    }
+    console.warn(`⚠️ Product Service trả về status ${upstream.status}, fallback về MongoDB local`);
+  } catch (err) {
+    console.warn(`⚠️ Lỗi kết nối Product Service (${err.message}), fallback về MongoDB local`);
+  }
+
+  return false;
 };
 
 /**
@@ -53,7 +64,10 @@ const proxyAdmin = async (req, res, path, method = 'GET') => {
 /* ─── Public routes ──────────────────────────────────────────────────── */
 
 export const getFlashSaleBooks = catchAsync(async (req, res) => {
-  if (isProductServiceEnabled()) return proxyPublic(req, res, '/flash-sale');
+  if (isProductServiceEnabled()) {
+    const handled = await proxyPublic(req, res, '/flash-sale');
+    if (handled) return;
+  }
 
   // Fallback: MongoDB local
   const now = new Date();
@@ -71,7 +85,10 @@ export const getFlashSaleBooks = catchAsync(async (req, res) => {
 });
 
 export const getAllBooks = catchAsync(async (req, res) => {
-  if (isProductServiceEnabled()) return proxyPublic(req, res, '/');
+  if (isProductServiceEnabled()) {
+    const handled = await proxyPublic(req, res, '/');
+    if (handled) return;
+  }
 
   // Fallback: MongoDB local
   const { search, category, minPrice, maxPrice, sort, page = 1, limit = 12, flashSale } = req.query;
@@ -118,7 +135,10 @@ export const getAllBooks = catchAsync(async (req, res) => {
 });
 
 export const getBook = catchAsync(async (req, res) => {
-  if (isProductServiceEnabled()) return proxyPublic(req, res, `/${req.params.id}`);
+  if (isProductServiceEnabled()) {
+    const handled = await proxyPublic(req, res, `/${req.params.id}`);
+    if (handled) return;
+  }
 
   const book = await Book.findById(req.params.id);
   if (!book) throw new AppError('Không tìm thấy sách', 404);
