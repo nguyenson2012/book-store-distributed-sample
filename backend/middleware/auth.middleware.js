@@ -1,19 +1,16 @@
-import User from '../modules/users/user.model.js';
 import AppError from '../utils/AppError.js';
 import catchAsync from '../utils/catchAsync.js';
-import { verifyAccessToken } from '../utils/jwt.js';
+import { validateToken } from '../utils/authClient.js';
 
-// Xác thực: đọc "Authorization: Bearer <token>", gắn user vào req
+// Xác thực: đọc "Authorization: Bearer <token>", hỏi Auth Service qua /validate, gắn user vào req
 export const protect = catchAsync(async (req, res, next) => {
   const header = req.headers.authorization;
   const token = header?.startsWith('Bearer ') ? header.split(' ')[1] : null;
   if (!token) throw new AppError('Bạn chưa đăng nhập', 401);
 
-  const { id } = verifyAccessToken(token); // lỗi JWT sẽ được errorHandler xử lý
-  const user = await User.findById(id);
-  if (!user) throw new AppError('Người dùng không còn tồn tại', 401);
-
-  req.user = user;
+  const u = await validateToken(token);
+  // giữ cả id và _id vì code dùng cả hai (req.user.id / user._id)
+  req.user = { id: u.id, _id: u.id, role: u.role, name: u.name, email: u.email };
   next();
 });
 

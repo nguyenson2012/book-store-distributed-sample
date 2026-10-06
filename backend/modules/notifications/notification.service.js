@@ -1,5 +1,5 @@
 import Notification from './notification.model.js';
-import User from '../users/user.model.js';
+import { getUsersByRole, getUsersByIds } from '../../utils/authClient.js';
 
 class NotificationService {
   /**
@@ -41,7 +41,7 @@ class NotificationService {
     });
 
     // 2. Tìm tất cả tài khoản admin để thông báo
-    const admins = await User.find({ role: 'admin' }).select('_id name email');
+    const admins = await getUsersByRole('admin');
     const adminNotificationPromises = admins.map((admin) =>
       this.createNotification({
         recipient: admin._id,
@@ -83,7 +83,7 @@ class NotificationService {
       if (typeof order.userId === 'object' && order.userId.email) {
         recipientUser = order.userId;
       } else {
-        recipientUser = await User.findById(order.userId);
+        recipientUser = (await getUsersByIds([order.userId]))[0];
       }
     }
 

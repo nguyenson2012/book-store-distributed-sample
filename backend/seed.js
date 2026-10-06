@@ -1,6 +1,5 @@
 import 'dotenv/config';
 import mongoose from 'mongoose';
-import User from './modules/users/user.model.js';
 import Book from './modules/books/book.model.js';
 import Cart from './modules/cart/cart.model.js';
 import Order from './modules/orders/order.model.js';
@@ -10,29 +9,6 @@ if (process.env.NODE_ENV === 'production') {
   console.error('❌ Không được chạy seed ở môi trường production');
   process.exit(1);
 }
-
-const ADMIN = {
-  name: 'Admin',
-  email: process.env.SEED_ADMIN_EMAIL || 'admin@bookstore.com',
-  password: process.env.SEED_ADMIN_PASSWORD || 'Admin@123456',
-  role: 'admin',
-};
-
-const CUSTOMER = {
-  name: 'Nguyễn Văn A',
-  email: 'customer@bookstore.com',
-  password: 'Customer@123',
-  role: 'customer',
-  addresses: [
-    {
-      fullName: 'Nguyễn Văn A',
-      phone: '0900000000',
-      street: '1 Đại Cồ Việt',
-      city: 'Hà Nội',
-      isDefault: true,
-    },
-  ],
-};
 
 // Hàm rút gọn để khai báo sách ngắn gọn hơn
 const b = (title, author, category, price, discountPrice, stock, description) => ({
@@ -78,14 +54,8 @@ const run = async () => {
     Order.deleteMany(),
     Cart.deleteMany(),
     Book.deleteMany(),
-    User.deleteMany(),
   ]);
   console.log('🗑️  Đã xóa dữ liệu cũ');
-
-  // Dùng create() (không phải insertMany) để hook pre('save') băm mật khẩu bcrypt
-  await User.create(ADMIN);
-  await User.create(CUSTOMER);
-  console.log('👤 Đã tạo tài khoản admin và customer');
 
   // Chạy validator của schema (VD: discountPrice < price)
   if (process.env.PRODUCT_SERVICE_URL) {
@@ -95,9 +65,7 @@ const run = async () => {
     console.log(`📚 Đã tạo ${books.length} cuốn sách`);
   }
 
-  console.log('\n──────── Thông tin đăng nhập ────────');
-  console.log(`Admin    : ${ADMIN.email} / ${ADMIN.password}`);
-  console.log(`Customer : ${CUSTOMER.email} / ${CUSTOMER.password}`);
+  console.log('ℹ️  Tài khoản admin/customer do auth-service quản lý — chạy `npm run seed` trong auth-service');
 };
 
 const main = async () => {
@@ -105,7 +73,7 @@ const main = async () => {
     // `npm run seed:destroy` chỉ xóa dữ liệu, không nạp lại
     if (process.argv.includes('--destroy')) {
       await mongoose.connect(process.env.MONGO_URI);
-      await Promise.all([Order.deleteMany(), Cart.deleteMany(), Book.deleteMany(), User.deleteMany()]);
+      await Promise.all([Order.deleteMany(), Cart.deleteMany(), Book.deleteMany()]);
       console.log('🗑️  Đã xóa toàn bộ dữ liệu');
     } else {
       await run();

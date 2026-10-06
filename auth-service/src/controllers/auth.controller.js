@@ -1,5 +1,6 @@
-import catchAsync from '../../utils/catchAsync.js';
-import * as authService from './auth.service.js';
+import catchAsync from '../utils/catchAsync.js';
+import User from '../models/user.model.js';
+import * as authService from '../services/auth.service.js';
 
 // Refresh token nằm trong HttpOnly cookie => JS phía client không đọc được (chống XSS)
 const cookieOptions = {
@@ -40,6 +41,34 @@ export const login = catchAsync(async (req, res) => {
 export const refresh = catchAsync(async (req, res) => {
   const accessToken = await authService.refreshAccessToken(req.cookies.refreshToken);
   res.json({ status: 'success', accessToken });
+});
+
+// Thông tin user hiện tại (đã qua middleware protect)
+export const me = (req, res) => {
+  res.json({ status: 'success', data: { user: req.user } });
+};
+
+// Dành cho service khác: kiểm tra token + trả về danh tính tối thiểu
+export const validate = (req, res) => {
+  const { _id, role, email, name } = req.user;
+  res.json({ status: 'success', valid: true, data: { user: { id: _id, role, email, name } } });
+};
+
+// Cập nhật hồ sơ (chỉ các field an toàn, không cho đổi role/password)
+export const updateMe = catchAsync(async (req, res) => {
+  const { name, addresses } = req.body;
+  const user = await User.findByIdAndUpdate(
+    req.user.id,
+    { ...(name && { name }), ...(addresses && { addresses }) },
+    { new: true, runValidators: true }
+  );
+  res.json({ status: 'success', data: { user } });
+});
+
+// Admin: danh sách user
+export const listUsers = catchAsync(async (req, res) => {
+  const users = await User.find();
+  res.json({ status: 'success', results: users.length, data: { users } });
 });
 
 export const logout = (req, res) => {

@@ -12,5 +12,18 @@ services:
       - meili_data:/meili_data
     restart: unless-stopped
 
+  auth-service:
+    build: ./auth-service
+    container_name: bookstore-auth-service
+    ports:
+      - "5003:8080"
+    env_file:
+      - path: ./auth-service/.env
+        required: false
+    environment:
+      NODE_ENV: development
+      PORT: 8080
+    restart: unless-stopped
+
 volumes:
   meili_data:

@@ -31,6 +31,7 @@ jobs:
             backend/package-lock.json
             frontend/package-lock.json
             product-service/package-lock.json
+            auth-service/package-lock.json
 
       - name: Test Frontend Build
         run: |
@@ -48,12 +49,69 @@ jobs:
           cd product-service
           npm ci --omit=dev
 
+      - name: Verify Auth Service Dependencies
+        run: |
+          cd auth-service
+          npm ci --omit=dev
+
+  # =========================================================================
+  # 2a. DEPLOY AUTH SERVICE TO CLOUD RUN
+  # =========================================================================
+  deploy-auth:
+    name: Build & Deploy Auth Service
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      auth_url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and Push Auth Service Image
+        run: |
+          IMAGE_TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/auth-service:${{ github.sha }}"
+          LATEST_TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/auth-service:latest"
+          docker build -t "$IMAGE_TAG" -t "$LATEST_TAG" ./auth-service
+          docker push "$IMAGE_TAG"
+          docker push "$LATEST_TAG"
+
+      - name: Deploy Auth Service to Cloud Run
+        id: deploy
+        run: |
+          IMAGE_TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/auth-service:${{ github.sha }}"
+          gcloud run deploy bookstore-auth \
+            --image "$IMAGE_TAG" \
+            --region ${{ env.REGION }} \
+            --platform managed \
+            --allow-unauthenticated \
+            --min-instances 0 \
+            --max-instances 2 \
+            --memory 512Mi \
+            --cpu 1 \
+            --set-env-vars "NODE_ENV=production,MONGO_URI=${{ secrets.AUTH_MONGO_URI }},JWT_ACCESS_SECRET=${{ secrets.JWT_ACCESS_SECRET }},JWT_REFRESH_SECRET=${{ secrets.JWT_REFRESH_SECRET }},JWT_ACCESS_EXPIRES=15m,JWT_REFRESH_EXPIRES=7d,EMAIL_HOST=${{ secrets.EMAIL_HOST }},EMAIL_PORT=${{ secrets.EMAIL_PORT }},EMAIL_SECURE=${{ secrets.EMAIL_SECURE }},EMAIL_USER=${{ secrets.EMAIL_USER }},EMAIL_PASS=${{ secrets.EMAIL_PASS }},EMAIL_FROM=${{ secrets.EMAIL_FROM }},AUTH_INTERNAL_SECRET=${{ secrets.AUTH_INTERNAL_SECRET }}"
+
+          URL=$(gcloud run services describe bookstore-auth --region ${{ env.REGION }} --format='value(status.url)')
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Auth Service URL: $URL"
+
   # =========================================================================
   # 2b. DEPLOY PRODUCT SERVICE TO CLOUD RUN
   # =========================================================================
   deploy-product:
     name: Build & Deploy Product Service
-    needs: test
+    needs: [test, deploy-auth]
     runs-on: ubuntu-latest
     outputs:
       product_url: ${{ steps.deploy.outputs.url }}
@@ -94,7 +152,7 @@ jobs:
             --max-instances 2 \
             --memory 512Mi \
             --cpu 1 \
-            --set-env-vars "NODE_ENV=production,MONGO_URI=${{ secrets.PRODUCT_MONGO_URI }},JWT_ACCESS_SECRET=${{ secrets.JWT_ACCESS_SECRET }},MEILI_HOST=${{ secrets.MEILI_HOST }},MEILI_MASTER_KEY=${{ secrets.MEILI_MASTER_KEY }},MEILI_INDEX=books,REDIS_URL=${{ secrets.REDIS_URL }},PRODUCT_INTERNAL_SECRET=${{ secrets.PRODUCT_INTERNAL_SECRET }}"
+            --set-env-vars "NODE_ENV=production,MONGO_URI=${{ secrets.PRODUCT_MONGO_URI }},AUTH_SERVICE_URL=${{ needs.deploy-auth.outputs.auth_url }},MEILI_HOST=${{ secrets.MEILI_HOST }},MEILI_MASTER_KEY=${{ secrets.MEILI_MASTER_KEY }},MEILI_INDEX=books,REDIS_URL=${{ secrets.REDIS_URL }},PRODUCT_INTERNAL_SECRET=${{ secrets.PRODUCT_INTERNAL_SECRET }}"
 
           URL=$(gcloud run services describe bookstore-product --region ${{ env.REGION }} --format='value(status.url)')
           echo "url=$URL" >> "$GITHUB_OUTPUT"
@@ -105,7 +163,7 @@ jobs:
   # =========================================================================
   deploy-backend:
     name: Build & Deploy Backend
-    needs: [test, deploy-product]
+    needs: [test, deploy-product, deploy-auth]
     runs-on: ubuntu-latest
     outputs:
       backend_url: ${{ steps.deploy.outputs.url }}
@@ -152,7 +210,7 @@ jobs:
             --max-instances 2 \
             --memory 512Mi \
             --cpu 1 \
-            --set-env-vars "NODE_ENV=production,MONGO_URI=${{ secrets.MONGO_URI }},JWT_ACCESS_SECRET=${{ secrets.JWT_ACCESS_SECRET }},JWT_REFRESH_SECRET=${{ secrets.JWT_REFRESH_SECRET }},JWT_ACCESS_EXPIRES=15m,JWT_REFRESH_EXPIRES=7d,EMAIL_HOST=${{ secrets.EMAIL_HOST }},EMAIL_PORT=${{ secrets.EMAIL_PORT }},EMAIL_SECURE=${{ secrets.EMAIL_SECURE }},EMAIL_USER=${{ secrets.EMAIL_USER }},EMAIL_PASS=${{ secrets.EMAIL_PASS }},EMAIL_FROM=${{ secrets.EMAIL_FROM }},RABBITMQ_URL=${{ secrets.RABBITMQ_URL || 'amqps://wpnhkcoz:IiAy4kCDTe2x6TNxuiakF76GRso9QN9H@kingfisher.lmq.cloudamqp.com/wpnhkcoz' }},PRODUCT_SERVICE_URL=${{ needs.deploy-product.outputs.product_url }},PRODUCT_INTERNAL_SECRET=${{ secrets.PRODUCT_INTERNAL_SECRET }}"
+            --set-env-vars "NODE_ENV=production,MONGO_URI=${{ secrets.MONGO_URI }},RABBITMQ_URL=${{ secrets.RABBITMQ_URL || 'amqps://wpnhkcoz:IiAy4kCDTe2x6TNxuiakF76GRso9QN9H@kingfisher.lmq.cloudamqp.com/wpnhkcoz' }},PRODUCT_SERVICE_URL=${{ needs.deploy-product.outputs.product_url }},PRODUCT_INTERNAL_SECRET=${{ secrets.PRODUCT_INTERNAL_SECRET }},AUTH_SERVICE_URL=${{ needs.deploy-auth.outputs.auth_url }},AUTH_INTERNAL_SECRET=${{ secrets.AUTH_INTERNAL_SECRET }}"
 
 
           URL=$(gcloud run services describe bookstore-backend --region ${{ env.REGION }} --format='value(status.url)')
@@ -164,7 +222,7 @@ jobs:
   # =========================================================================
   deploy-frontend:
     name: Build & Deploy Frontend
-    needs: deploy-backend
+    needs: [deploy-backend, deploy-auth]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -185,6 +243,7 @@ jobs:
       - name: Build and Push Frontend Image
         env:
           BACKEND_URL: ${{ needs.deploy-backend.outputs.backend_url }}
+          AUTH_URL: ${{ needs.deploy-auth.outputs.auth_url }}
         run: |
           IMAGE_TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/frontend:${{ github.sha }}"
           LATEST_TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/frontend:latest"
@@ -192,6 +251,7 @@ jobs:
           # Inject BACKEND_URL vào Vite build arg
           docker build \
             --build-arg VITE_API_URL="${BACKEND_URL}/api/v1" \
+            --build-arg VITE_AUTH_API_URL="${AUTH_URL}/api/v1" \
             -t "$IMAGE_TAG" \
             -t "$LATEST_TAG" \
             ./frontend
@@ -220,5 +280,10 @@ jobs:
           # Tự động cập nhật CLIENT_URL cho Backend để cho phép CORS an toàn
           echo "Updating Backend CORS with Frontend URL..."
           gcloud run services update bookstore-backend \
+            --region ${{ env.REGION }} \
+            --update-env-vars CLIENT_URL="$FRONTEND_URL"
+
+          # Auth Service cũng cần CORS + link xác nhận email trỏ về Frontend
+          gcloud run services update bookstore-auth \
             --region ${{ env.REGION }} \
             --update-env-vars CLIENT_URL="$FRONTEND_URL"

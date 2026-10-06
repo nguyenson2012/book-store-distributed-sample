@@ -120,7 +120,7 @@ MONGO_URI=mongodb+srv://<user>:<password>@cluster0.xxxxx.mongodb.net/bookstore_p
 CLIENT_URL=http://localhost:5173
 
 # 2. JWT Secret — Đồng bộ với Backend Monolith để xác thực Admin
-JWT_ACCESS_SECRET=<chuoi_jwt_secret_khop_voi_monolith>
+AUTH_SERVICE_URL=http://localhost:5003   # URL của auth-service để validate token admin
 
 # 3. Meilisearch — Trên GCP VM (hoặc Docker local)
 MEILI_HOST=http://<ip_vm_gcp_hoac_localhost>:7700
