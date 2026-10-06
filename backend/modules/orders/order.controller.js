@@ -5,6 +5,7 @@ import catchAsync from '../../utils/catchAsync.js';
 import notificationService from '../notifications/notification.service.js';
 import { publishEvent } from '../../utils/rabbitmq.js';
 import { reserveStock, restoreStock } from '../../utils/productClient.js';
+import { getUsersByIds } from '../../utils/authClient.js';
 
 /** POST /api/v1/orders  — tạo đơn từ giỏ hàng hiện tại */
 export const createOrder = catchAsync(async (req, res) => {
@@ -78,7 +79,14 @@ export const getMyOrders = catchAsync(async (req, res) => {
 /** GET /api/v1/orders — admin xem tất cả */
 export const getAllOrders = catchAsync(async (req, res) => {
   const filter = req.query.status ? { orderStatus: req.query.status } : {};
-  const orders = await Order.find(filter).populate('userId', 'name email').sort('-createdAt');
+  // User nằm ở auth-service => không populate được, ghép thông tin user theo lô
+  const orders = (await Order.find(filter).sort('-createdAt')).map((o) => o.toObject());
+  const users = await getUsersByIds(orders.map((o) => o.userId));
+  const byId = new Map(users.map((u) => [String(u.id), u]));
+  for (const o of orders) {
+    const u = byId.get(String(o.userId));
+    if (u) o.userId = { _id: u.id, name: u.name, email: u.email };
+  }
   res.json({ status: 'success', results: orders.length, data: { orders } });
 });
 
@@ -106,14 +114,18 @@ export const updateOrderStatus = catchAsync(async (req, res) => {
 
   // Khi order được giao thành công => gửi thông báo in-app và email cho khách hàng
   if (status === 'Delivered') {
-    notificationService.notifyOrderDelivered({ order }).catch((err) => {
+    const [user] = await getUsersByIds([order.userId]);
+
+    notificationService.notifyOrderDelivered({ order, user }).catch((err) => {
       console.error('❌ Lỗi gửi thông báo/email khi giao hàng thành công:', err.message);
     });
 
-    // Publish event sang Notification Service qua RabbitMQ
+    // Publish event sang Notification Service qua RabbitMQ (kèm thông tin user để consumer không cần query DB user cũ)
     publishEvent('order.delivered', {
       orderId: order._id,
       userId: order.userId,
+      userName: user?.name,
+      userEmail: user?.email,
       totalAmount: order.totalAmount,
       orderItems: order.orderItems,
       shippingAddress: order.shippingAddress,

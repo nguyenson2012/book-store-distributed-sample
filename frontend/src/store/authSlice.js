@@ -1,13 +1,13 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
-import api, { setAccessToken } from '../services/api';
+import api, { authApi, setAccessToken } from '../services/api';
 import { errMsg } from '../utils/helpers';
 
 // Chạy 1 lần khi mở app: dùng refresh token (HttpOnly cookie) để khôi phục phiên đăng nhập
 export const bootstrapAuth = createAsyncThunk('auth/bootstrap', async () => {
   try {
-    const { data } = await api.post('/auth/refresh');
+    const { data } = await authApi.post('/auth/refresh');
     setAccessToken(data.accessToken);
-    const me = await api.get('/users/me');
+    const me = await authApi.get('/auth/me');
     return me.data.data.user;
   } catch {
     return null; // chưa đăng nhập hoặc refresh token hết hạn
@@ -17,7 +17,7 @@ export const bootstrapAuth = createAsyncThunk('auth/bootstrap', async () => {
 const authThunk = (name, url) =>
   createAsyncThunk(`auth/${name}`, async (body, { rejectWithValue }) => {
     try {
-      const { data } = await api.post(url, body);
+      const { data } = await authApi.post(url, body);
       setAccessToken(data.accessToken);
       return data.data.user;
     } catch (e) {
@@ -30,7 +30,7 @@ export const login = authThunk('login', '/auth/login');
 // Register giờ chỉ trả về message (cần xác nhận email trước)
 export const register = createAsyncThunk('auth/register', async (body, { rejectWithValue }) => {
   try {
-    const { data } = await api.post('/auth/register', body);
+    const { data } = await authApi.post('/auth/register', body);
     return { message: data.message }; // không có user
   } catch (e) {
     return rejectWithValue(errMsg(e));
@@ -40,7 +40,7 @@ export const register = createAsyncThunk('auth/register', async (body, { rejectW
 // Xác nhận email với token từ link email
 export const verifyEmail = createAsyncThunk('auth/verifyEmail', async (token, { rejectWithValue }) => {
   try {
-    const { data } = await api.get(`/auth/verify-email?token=${token}`);
+    const { data } = await authApi.get(`/auth/verify-email?token=${token}`);
     setAccessToken(data.accessToken);
     return data.data.user;
   } catch (e) {
@@ -49,13 +49,13 @@ export const verifyEmail = createAsyncThunk('auth/verifyEmail', async (token, { 
 });
 
 export const logout = createAsyncThunk('auth/logout', async () => {
-  await api.post('/auth/logout').catch(() => {});
+  await authApi.post('/auth/logout').catch(() => {});
   setAccessToken(null);
 });
 
 export const updateProfile = createAsyncThunk('auth/updateProfile', async (body, { rejectWithValue }) => {
   try {
-    const { data } = await api.patch('/users/me', body);
+    const { data } = await authApi.patch('/auth/me', body);
     return data.data.user;
   } catch (e) {
     return rejectWithValue(errMsg(e));

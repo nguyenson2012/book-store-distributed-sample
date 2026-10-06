@@ -10,25 +10,21 @@
 
 ```
 bookstore-monolith/
-├── backend/               # Node.js + Express API Server
-│   ├── modules/           # Domain modules (sẵn sàng tách microservice)
-│   │   ├── auth/          # Xác thực — JWT, Refresh Token, Email Verify
-│   │   ├── users/         # Người dùng, địa chỉ giao hàng
-│   │   ├── books/         # Quản lý sách, tìm kiếm, Flash Sale
-│   │   ├── cart/          # Giỏ hàng
-│   │   ├── orders/        # Đơn hàng, xử lý thanh toán
-│   │   ├── notifications/ # Thông báo người dùng
-│   │   └── reviews/       # Đánh giá sách
-│   ├── middleware/        # Auth guard, error handler
-│   ├── config/            # Kết nối MongoDB
-│   └── utils/             # JWT helper, AppError, catchAsync, Email sender
+├── auth-service/          # Microservice: Xác thực, Người dùng, JWT, Email xác nhận (DB: bookstore_auth)
+├── product-service/       # Microservice: Catalog sách, Meilisearch, Redis cache (DB: bookstore_products)
+├── notification-service/  # Worker: Xử lý email bất đồng bộ qua RabbitMQ
+├── backend/               # Core Monolith: Giỏ hàng, Đơn hàng, Thông báo in-app
+│   ├── modules/           # cart, orders, notifications
+│   ├── middleware/        # Auth guard (xác thực qua auth-service), error handler
+│   ├── config/            # Kết nối MongoDB (DB: bookstore)
+│   └── utils/             # RabbitMQ, productClient, authClient, AppError
 │
 ├── frontend/              # React 19 + Vite + TailwindCSS 4
 │   └── src/
 │       ├── pages/         # Home, BookDetail, Cart, Checkout, Auth, VerifyEmail, Admin
 │       ├── components/    # Navbar, Footer, BookCard, FlashSaleSection, RouteGuards
 │       ├── store/         # Redux Toolkit (auth, cart, notification)
-│       ├── services/      # Axios instance + interceptors
+│       ├── services/      # Axios client (api, authApi, catalogApi)
 │       └── utils/
 │
 └── .github/workflows/     # CI/CD tự động lên Google Cloud Run
@@ -257,9 +253,11 @@ Vào **Settings → Secrets and variables → Actions** của repository và th�
 
 ## 📡 API Endpoints
 
-Base URL: `http://localhost:5001/api/v1` (Local) hoặc URL Cloud Run của bạn.
+- **Backend Monolith**: `http://localhost:5001/api/v1` (Cart, Orders, Notifications)
+- **Auth Service**: `http://localhost:5003/api/v1` (Register, Login, Refresh, Me, Validate)
+- **Product Service**: `http://localhost:5002/api/v1` (Books, Search, Stock)
 
-### Auth
+### Auth (`auth-service`)
 | Method | Endpoint | Mô tả | Auth |
 |---|---|---|---|
 | `POST` | `/auth/register` | Đăng ký — gửi email xác nhận | ❌ |
@@ -267,6 +265,10 @@ Base URL: `http://localhost:5001/api/v1` (Local) hoặc URL Cloud Run của bạ
 | `POST` | `/auth/refresh` | Gia hạn Access Token | Cookie |
 | `POST` | `/auth/logout` | Đăng xuất | Cookie |
 | `GET` | `/auth/verify-email?token=` | Xác nhận email từ link | ❌ |
+| `GET` | `/auth/me` | Lấy thông tin user hiện tại | 🔒 Bearer |
+| `PATCH`| `/auth/me` | Cập nhật thông tin profile/địa chỉ | 🔒 Bearer |
+| `GET` | `/auth/validate` | Xác thực token (dành cho các service khác) | 🔒 Bearer |
+| `GET` | `/auth/users` | Danh sách người dùng | 🔒 Admin |
 
 ### Books
 | Method | Endpoint | Mô tả | Auth |

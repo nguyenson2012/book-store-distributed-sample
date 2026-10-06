@@ -5,6 +5,12 @@ const api = axios.create({
   withCredentials: true, // gửi HttpOnly cookie (refresh token)
 });
 
+// Auth Service (login/register/refresh/me/profile...) — monolith không còn route /auth
+export const authApi = axios.create({
+  baseURL: import.meta.env.VITE_AUTH_API_URL || 'http://localhost:5003/api/v1',
+  withCredentials: true, // gửi HttpOnly cookie (refresh token)
+});
+
 let accessToken = null; // giữ trong bộ nhớ, không lưu localStorage
 export const setAccessToken = (t) => (accessToken = t);
 export const getAccessToken = () => accessToken;
@@ -23,7 +29,7 @@ const attachAuth = (instance) => {
       if (error.response?.status === 401 && !original._retry && !isAuthCall) {
         original._retry = true;
         try {
-          const { data } = await api.post('/auth/refresh');
+          const { data } = await authApi.post('/auth/refresh');
           setAccessToken(data.accessToken);
           original.headers = original.headers || {};
           original.headers.Authorization = `Bearer ${data.accessToken}`;
@@ -38,6 +44,7 @@ const attachAuth = (instance) => {
 };
 
 attachAuth(api);
+attachAuth(authApi);
 
 const PRODUCT_URL = import.meta.env.VITE_PRODUCT_API_URL;
 const TRAFFIC_PERCENT = Number(import.meta.env.VITE_PRODUCT_TRAFFIC_PERCENT ?? 0);

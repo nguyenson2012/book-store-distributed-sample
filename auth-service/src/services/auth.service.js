@@ -1,7 +1,7 @@
-import User from '../users/user.model.js';
-import AppError from '../../utils/AppError.js';
-import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../../utils/jwt.js';
-import { sendVerificationEmail } from '../../utils/email.js';
+import User from '../models/user.model.js';
+import AppError from '../utils/AppError.js';
+import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../utils/jwt.js';
+import { sendVerificationEmail } from '../utils/email.js';
 import crypto from 'crypto';
 
 export const registerUser = async ({ name, email, password }, clientUrl) => {

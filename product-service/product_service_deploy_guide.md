@@ -173,8 +173,8 @@ MONGO_URI=mongodb+srv://product_svc_user:<password>@cluster0.xxxxx.mongodb.net/b
 
 CLIENT_URL=http://localhost:5173
 
-# JWT Access Secret (phải khớp với backend monolith để xác thực token admin)
-JWT_ACCESS_SECRET=<chuoi_jwt_secret_khop_monolith>
+# Auth Service URL (để xác thực token admin qua /validate)
+AUTH_SERVICE_URL=http://localhost:5003
 
 # Meilisearch trên GCP VM
 MEILI_HOST=http://<VM_EXTERNAL_IP>:7700
@@ -282,7 +282,7 @@ GitHub Actions sẽ tự động build image cho `product-service`, push lên Ar
      --cpu 1 \
      --min-instances 0 \
      --max-instances 2 \
-     --set-env-vars "NODE_ENV=production,MONGO_URI=<product_mongo_uri>,JWT_ACCESS_SECRET=<jwt_secret>,MEILI_HOST=http://<VM_IP>:7700,MEILI_MASTER_KEY=<master_key>,MEILI_INDEX=books,REDIS_URL=rediss://...,PRODUCT_INTERNAL_SECRET=<internal_secret>"
+     --set-env-vars "NODE_ENV=production,MONGO_URI=<product_mongo_uri>,AUTH_SERVICE_URL=<auth_service_url>,MEILI_HOST=http://<VM_IP>:7700,MEILI_MASTER_KEY=<master_key>,MEILI_INDEX=books,REDIS_URL=rediss://...,PRODUCT_INTERNAL_SECRET=<internal_secret>"
    ```
 
 3. Lấy URL Cloud Run của Product Service:

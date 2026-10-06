@@ -7,12 +7,15 @@ import { sendOrderDeliveredEmail } from '../email.service.js';
  * Payload từ monolith: { orderId, userId, totalAmount, orderItems, shippingAddress, paymentMethod }
  */
 export const handleOrderDelivered = async (payload) => {
-  const { orderId, userId, totalAmount, orderItems, shippingAddress, paymentMethod } = payload;
+  const { orderId, userId, userName: payloadUserName, userEmail: payloadUserEmail, totalAmount, orderItems, shippingAddress, paymentMethod } = payload;
 
   console.log(`🚚 [Handler] order.delivered → Đơn #${orderId}`);
 
-  // 1. Lấy thông tin user từ DB
-  const user = await User.findById(userId).select('name email');
+  // 1. Lấy thông tin user từ payload hoặc DB
+  let user = (payloadUserEmail || payloadUserName)
+    ? { name: payloadUserName, email: payloadUserEmail }
+    : await User.findById(userId).select('name email');
+
   if (!user) {
     console.warn(`⚠️ [Handler] Không tìm thấy user ${userId} cho đơn #${orderId}`);
     return;
