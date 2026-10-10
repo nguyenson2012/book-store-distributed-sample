@@ -8,16 +8,6 @@ RUN npm ci
 
 COPY . .
 
-# Stage 1: Build React Vite app
-FROM node:20-alpine AS build
-
-WORKDIR /app
-
-COPY package*.json ./
-RUN npm ci
-
-COPY . .
-
 # Build argument cho API URL (sẽ được CI/CD inject vào lúc build Vite)
 ARG VITE_API_URL
 ENV VITE_API_URL=${VITE_API_URL}
