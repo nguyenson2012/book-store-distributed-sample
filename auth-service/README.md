@@ -1,43 +1,68 @@
 # Auth Service
 
-Microservice xác thực, tách ra từ monolith (`backend/modules/auth`).
+Microservice xác thực và quản lý tài khoản người dùng, được tách độc lập từ Monolith sang cơ sở dữ liệu riêng `bookstore_auth`.
 
-## Endpoint (`/api/v1/auth`)
+---
 
-| Method | Path | Mô tả |
+## 📡 Danh sách Endpoints
+
+### 1. Public & User APIs (`/api/v1/auth`)
+
+| Phương thức | Đường dẫn | Chức năng | Phân quyền |
+|---|---|---|---|
+| `POST` | `/register` | Đăng ký tài khoản, gửi email xác nhận | Public |
+| `GET` | `/verify-email?token=` | Kích hoạt tài khoản từ email | Public |
+| `POST` | `/login` | Đăng nhập, trả `accessToken` + cookie `refreshToken` | Public |
+| `POST` | `/refresh` | Cấp lại `accessToken` từ HttpOnly cookie | Cookie |
+| `POST` | `/logout` | Xoá refresh token cookie | Public |
+| `GET` | `/me` | Xem thông tin người dùng hiện tại | 🔒 Bearer |
+| `PATCH` | `/me` | Cập nhật hồ sơ / địa chỉ giao hàng | 🔒 Bearer |
+| `GET` | `/validate` | Endpoint dành cho service khác xác thực token (`{ valid, data: { user } }`) | 🔒 Bearer |
+| `GET` | `/users` | Danh sách người dùng | 🔒 Admin |
+| `GET` | `/health` | Health check endpoint | Public |
+
+### 2. Internal APIs (`/internal/v1/users`)
+*Yêu cầu header `x-internal-key: <AUTH_INTERNAL_SECRET>`*
+
+| Phương thức | Đường dẫn | Chức năng |
 |---|---|---|
-| POST | `/register` | Đăng ký, gửi email xác nhận |
-| GET | `/verify-email?token=` | Xác nhận email, đăng nhập luôn |
-| POST | `/login` | Trả `accessToken` + cookie `refreshToken` |
-| POST | `/refresh` | Cấp lại `accessToken` từ cookie |
-| POST | `/logout` | Xoá cookie |
-| GET | `/me` | Thông tin user hiện tại (Bearer) |
-| GET | `/validate` | Dành cho service khác: `{ valid, data: { user: { id, role, email } } }` (Bearer) |
-| GET | `/health` (gốc) | Health check |
+| `GET` | `/:id` | Lấy thông tin cơ bản của user theo ID (tên, email, role, phone, address) |
+| `POST` | `/batch` | Lấy danh sách nhiều user theo mảng IDs (`{"userIds": ["id1", "id2"]}`) |
 
-## Chạy local
+---
+
+## 🚀 Chạy local (Local Development)
 
 ```bash
-cp sample.env .env   # điền MONGO_URI, JWT_*
+cd auth-service
+cp sample.env .env   # Điền MONGO_URI, JWT_*, EMAIL_*
 npm install
 npm run dev          # http://localhost:5003
 ```
 
-Hoặc `docker compose up --build auth-service` ở thư mục gốc (cổng `5003`).
-
-## Tích hợp
-
-- **product-service**: đặt `AUTH_SERVICE_URL`; middleware `protect` gọi `/validate`.
-- **frontend**: đặt `VITE_AUTH_API_URL=<auth-url>/api/v1`.
-- `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` phải giống monolith để token hai bên tương thích.
-- Auth-service dùng DB riêng `bookstore_auth` (cùng cluster Atlas với monolith). Secret GitHub: `AUTH_MONGO_URI`.
-
-## Migrate users từ monolith
-
+Hoặc khởi chạy qua Docker Compose ở thư mục gốc:
 ```bash
-# .env của auth-service: MONGO_URI=.../bookstore_auth  và  MONOLITH_MONGO_URI=.../bookstore
-npm run migrate -- --dry-run   # chỉ đếm
-npm run migrate                # copy thật (upsert theo _id, giữ nguyên hash mật khẩu, chạy lại an toàn)
+docker compose up --build auth-service
 ```
 
-> Sau khi tách DB, user đăng ký mới chỉ nằm ở `bookstore_auth`. Các route còn lại của monolith (`protect` → `User.findById`, `/users/me`, orders...) vẫn đọc `bookstore.users` nên sẽ không thấy user mới cho tới khi monolith được chuyển sang xác thực qua `/validate`.
+---
+
+## 🔗 Tích hợp hệ thống (System Integration)
+
+- **backend (Monolith Core):** Đặt `AUTH_SERVICE_URL=http://localhost:5003` và `AUTH_INTERNAL_SECRET`. Middleware `auth.middleware.js` gọi `/api/v1/auth/validate` để xác thực token và tra cứu user qua `/internal/v1/users`.
+- **product-service:** Đặt `AUTH_SERVICE_URL=http://localhost:5003`. Middleware gọi `/validate` để kiểm tra quyền Admin khi CRUD sách.
+- **frontend:** Đặt `VITE_AUTH_API_URL=<auth-url>/api/v1` để trực tiếp gọi xác thực tới Auth Service.
+- **Database:** Sử dụng DB riêng `bookstore_auth` (cùng MongoDB cluster Atlas).
+
+---
+
+## 📦 Di chuyển dữ liệu từ Monolith (Migration)
+
+```bash
+# Trong file .env của auth-service cần có cả 2 URI:
+# MONGO_URI=.../bookstore_auth
+# MONOLITH_MONGO_URI=.../bookstore
+
+npm run migrate -- --dry-run   # Chế độ kiểm tra (chỉ đếm số lượng user)
+npm run migrate                # Thực hiện copy (upsert theo _id, giữ nguyên password hash)
+```

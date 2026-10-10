@@ -1,345 +1,341 @@
-# 📚 Bookstore — Fullstack Monolith
+# 📚 Bookstore — Distributed Microservices Architecture
 
-Ứng dụng bán sách trực tuyến fullstack được xây dựng theo kiến trúc **monolith module-based**, thiết kế sẵn sàng để tách thành **microservices** trong tương lai. Hệ thống được tự động triển khai lên **Google Cloud Run** qua CI/CD pipeline sử dụng GitHub Actions.
+Hệ thống bán sách trực tuyến fullstack được phát triển và chuyển đổi từ **Monolith** sang kiến trúc **Distributed Microservices** (Database-per-Service), sẵn sàng mở rộng quy mô và được triển khai tự động lên **Google Cloud Run (Free Tier)** qua CI/CD pipeline GitHub Actions.
 
 [![CI/CD Pipeline](https://github.com/nguyenson2012/book-store-distributed-sample/actions/workflows/deploy.yml/badge.svg)](https://github.com/nguyenson2012/book-store-distributed-sample/actions/workflows/deploy.yml)
 
 ---
 
-## 🏗️ Kiến trúc hệ thống
+## 🏗️ Kiến trúc tổng thể (System Architecture)
 
-```
-bookstore-monolith/
-├── auth-service/          # Microservice: Xác thực, Người dùng, JWT, Email xác nhận (DB: bookstore_auth)
-├── product-service/       # Microservice: Catalog sách, Meilisearch, Redis cache (DB: bookstore_products)
-├── notification-service/  # Worker: Xử lý email bất đồng bộ qua RabbitMQ
-├── backend/               # Core Monolith: Giỏ hàng, Đơn hàng, Thông báo in-app
-│   ├── modules/           # cart, orders, notifications
-│   ├── middleware/        # Auth guard (xác thực qua auth-service), error handler
-│   ├── config/            # Kết nối MongoDB (DB: bookstore)
-│   └── utils/             # RabbitMQ, productClient, authClient, AppError
-│
-├── frontend/              # React 19 + Vite + TailwindCSS 4
-│   └── src/
-│       ├── pages/         # Home, BookDetail, Cart, Checkout, Auth, VerifyEmail, Admin
-│       ├── components/    # Navbar, Footer, BookCard, FlashSaleSection, RouteGuards
-│       ├── store/         # Redux Toolkit (auth, cart, notification)
-│       ├── services/      # Axios client (api, authApi, catalogApi)
-│       └── utils/
-│
-└── .github/workflows/     # CI/CD tự động lên Google Cloud Run
+```mermaid
+flowchart TD
+    subgraph Clients["Clients"]
+        FE["Frontend (React 19 / Vite :5173)"]
+        ADMIN["Admin Dashboard"]
+    end
+
+    subgraph Microservices["Microservices & Core Backend"]
+        AUTH["Auth Service (:5003)\n- Đăng ký / Đăng nhập / Profile\n- JWT Access & HttpOnly Refresh\n- Token Validation API"]
+        PRODUCT["Product Service (:5002)\n- Catalog sách, Flash Sale\n- Full-Text Search tiếng Việt\n- Upstash Redis Caching\n- Quản lý kho nguyên tử"]
+        CORE["Backend Core Monolith (:5001)\n- Giỏ hàng (Cart)\n- Đơn hàng (Orders)\n- Thông báo in-app"]
+        NOTIF["Notification Service (Worker)\n- Xử lý gửi email qua Queue"]
+    end
+
+    subgraph Broker["Message Broker"]
+        RABBIT[("RabbitMQ / CloudAMQP\n(Events: order.placed, order.delivered)")]
+    end
+
+    subgraph Storage["Databases & Search / Cache"]
+        DB_AUTH[("MongoDB Atlas\n(DB: bookstore_auth)")]
+        DB_PROD[("MongoDB Atlas\n(DB: bookstore_products)")]
+        DB_CORE[("MongoDB Atlas\n(DB: bookstore)")]
+        MEILI[("Meilisearch Search Engine\n(GCP VM e2-micro :7700)")]
+        REDIS[("Upstash Redis Cache\n(TLS Serverless)")]
+    end
+
+    FE -->|Auth & User Profile| AUTH
+    FE -->|Browse / Search Books| PRODUCT
+    FE -->|Cart & Orders| CORE
+    ADMIN -->|CRUD Books| PRODUCT
+
+    AUTH --- DB_AUTH
+    PRODUCT --- DB_PROD
+    PRODUCT <--> MEILI
+    PRODUCT <--> REDIS
+    CORE --- DB_CORE
+
+    CORE -->|1. Validate JWT Bearer| AUTH
+    PRODUCT -->|2. Validate Admin JWT| AUTH
+    CORE -->|3. Reserve/Restore Stock (x-internal-key)| PRODUCT
+    CORE -->|4. Publish Order Events| RABBIT
+    RABBIT -->|5. Consume Events & Send Email| NOTIF
 ```
 
 ---
 
-## 🛠️ Tech Stack
+## 🧩 Danh sách các Dịch vụ (Services Overview)
 
-### Backend
-| Thành phần | Công nghệ |
-|---|---|
-| Runtime | Node.js 20 (ES Modules) |
-| Framework | Express 5 |
-| Database | MongoDB Atlas (Mongoose 9) |
-| Auth | JWT Access Token + Refresh Token (HttpOnly Cookie) |
-| Email | Nodemailer + Resend SMTP (production) / Ethereal (development) |
-| Security | Helmet, CORS, express-rate-limit, bcryptjs |
-| Logging | Morgan |
-
-### Frontend
-| Thành phần | Công nghệ |
-|---|---|
-| UI Framework | React 19 |
-| Build Tool | Vite 8 |
-| State Management | Redux Toolkit |
-| HTTP Client | Axios (với interceptor tự động refresh token) |
-| Routing | React Router DOM 7 |
-| Styling | TailwindCSS 4 |
-
-### DevOps & Infrastructure
-| Thành phần | Công nghệ |
-|---|---|
-| CI/CD | GitHub Actions |
-| Container Registry | Google Artifact Registry |
-| Hosting | Google Cloud Run (Free Tier) |
-| Database Hosting | MongoDB Atlas (Free Tier) |
-| Container | Docker (multi-stage build) |
+| Dịch vụ | Thư mục | Port Local | Database | Nhiệm vụ chính |
+|---|---|---|---|---|
+| **Auth Service** | `auth-service/` | `:5003` | `bookstore_auth` | Quản lý người dùng, đăng ký, đăng nhập, JWT token, gửi email kích hoạt, cung cấp API xác thực token (`/validate`) và tra cứu user (`/internal/v1/users`). |
+| **Product Service** | `product-service/` | `:5002` | `bookstore_products` | Danh mục sách, phân trang, lọc nâng cao, Flash Sale engine, tìm kiếm Full-Text tiếng Việt chịu lỗi chính tả qua **Meilisearch**, cache qua **Upstash Redis**, trừ/hoàn kho nguyên tử (`/internal/v1/stock`). |
+| **Core Monolith** | `backend/` | `:5001` | `bookstore` | Quản lý giỏ hàng (Cart), quy trình thanh toán và đặt hàng (Orders), thông báo in-app (Notifications). Xác thực ủy quyền qua `auth-service`, điều phối kho qua `product-service`, phát sự kiện sang RabbitMQ. |
+| **Notification Service** | `notification-service/` | Worker | — | Background worker lắng nghe hàng đợi RabbitMQ (`order.placed`, `order.delivered`) để gửi email tự động qua Resend/Nodemailer. |
+| **Frontend Web** | `frontend/` | `:5173` | — | Giao diện Single Page Application (SPA) tương tác đa dịch vụ: Auth API (`auth-service`), Catalog API (`product-service`), Commerce API (`backend`). |
 
 ---
 
-## ✨ Tính năng
+## 🛠️ Tech Stack & Hạ tầng
 
-### Khách hàng
-- 🔐 **Xác thực**: Đăng ký / Đăng nhập với JWT Access Token + Refresh Token tự động gia hạn
-- 📧 **Xác nhận email**: Gửi email xác nhận sau đăng ký — tài khoản chỉ hoạt động sau khi click link (token có hiệu lực 24 giờ)
-- 📖 **Duyệt sách**: Xem danh sách, tìm kiếm theo tên/tác giả, lọc theo danh mục và khoảng giá, sắp xếp
-- ⚡ **Flash Sale**: Section sản phẩm Flash Sale nổi bật ngay trên trang chủ với đồng hồ đếm ngược; badge `-50%` hiển thị trên mỗi thẻ sách
-- 🛒 **Giỏ hàng**: Thêm / xóa / cập nhật số lượng; giá Flash Sale được tính tự động tại thời điểm thêm vào giỏ
-- 💳 **Đặt hàng**: Thanh toán, quản lý địa chỉ giao hàng
-- 🔔 **Thông báo**: Cập nhật trạng thái đơn hàng theo thời gian thực (polling)
-- 👤 **Hồ sơ**: Quản lý thông tin cá nhân, địa chỉ
+### Ứng dụng & Dịch vụ
+- **Runtime:** Node.js 20 (ES Modules)
+- **Backend Framework:** Express 5
+- **Frontend Framework:** React 19, Vite, TailwindCSS 4, Redux Toolkit, React Router DOM 7
+- **Database:** MongoDB Atlas (Mongoose 9) — Mô hình **Database-per-Service** (3 cơ sở dữ liệu độc lập)
+- **Search Engine:** Meilisearch 1.11 (triển khai trên GCP Compute Engine VM `e2-micro`)
+- **Cache Layer:** Upstash Redis (Serverless TLS Rediss) với kỹ thuật **Catalog Versioning** (`catalog:v`)
+- **Message Broker:** RabbitMQ / CloudAMQP
+- **Mailing:** Nodemailer (Gmail App Password / Resend SMTP / Ethereal Test)
 
-### Quản trị viên
-- 📊 **Dashboard**: Thống kê tổng quan đơn hàng, trạng thái xử lý
-- 📚 **Quản lý sách** (nâng cao):
-  - Thêm sách mới với đầy đủ thông tin
-  - **Cập nhật thông tin sách** qua modal chỉnh sửa trực quan (tiêu đề, tác giả, danh mục, giá, mô tả, tồn kho)
-  - **Dán link ảnh bìa sách**: Hỗ trợ paste URL ảnh trực tiếp từ clipboard, xem trước ảnh ngay lập tức, phản hồi trạng thái (hợp lệ / lỗi URL)
-  - Tìm kiếm nhanh sách trong danh sách
-  - Lọc tab "Đang Flash Sale" để quản lý chiến dịch
-  - **Bật / Tắt Flash Sale nhanh** (1 click) — mặc định 24 giờ, giảm 50%
-  - **Cấu hình Flash Sale chi tiết**: Chọn thời lượng nhanh (1h, 6h, 12h, 24h, 3 ngày, 7 ngày) hoặc nhập thời điểm kết thúc cụ thể; preview giá Flash Sale (-50%) ngay trên form
-- 📦 **Quản lý đơn hàng**: Cập nhật trạng thái xử lý (Pending → Processing → Shipped → Delivered)
-
-### Flash Sale System
-- ⚡ Hệ thống Flash Sale hoàn chỉnh từ backend đến frontend:
-  - Schema mở rộng `isFlashSale`, `flashSaleStartDate`, `flashSaleEndDate`, `flashSaleDiscount`
-  - Virtual `isFlashSaleActive` tự động kiểm tra thời gian hiệu lực
-  - Virtual `finalPrice` ưu tiên giá Flash Sale (-50%) nếu đang trong kỳ sale
-  - Giá Flash Sale được tính và chốt tại backend khi thêm vào giỏ — không tin giá từ client
-  - Đồng hồ đếm ngược realtime trên trang chủ và trang chi tiết sách
-  - Flash Sale tự động hết hiệu lực sau thời gian đã cài đặt (không cần tác động thủ công)
-  - Bộ lọc `?flashSale=true` trên trang danh sách sách
-
-### Bảo mật
-- HttpOnly Cookie cho Refresh Token (chống XSS)
-- `sameSite: 'none'` + HTTPS trong production (cross-domain an toàn)
-- Rate limiting trên các route xác thực
-- Role-based access control (customer / admin)
-- Helmet HTTP headers hardening
-- Email verify token được hash SHA-256 trước khi lưu DB (chống lộ token)
-- **Giá sản phẩm luôn lấy từ DB** tại thời điểm đặt hàng (chống gian lận giá từ phía client)
+### DevOps & Triển khai
+- **Hosting:** Google Cloud Run (Container Managed — Tối ưu hóa Free Tier: Min instance = 0, Max = 2)
+- **Container Registry:** Google Artifact Registry
+- **CI/CD:** GitHub Actions với pipeline tự động build, test và deploy đa dịch vụ song song
+- **Containerization:** Docker & Docker Compose
 
 ---
 
-## 🚀 Chạy dự án cục bộ (Local Development)
+## 🔄 Giao tiếp liên dịch vụ (Inter-service Communication)
 
-### Yêu cầu
-- Node.js >= 20
-- Tài khoản [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) (Free Tier)
-
-### 1. Clone repository
-```bash
-git clone https://github.com/nguyenson2012/book-store-distributed-sample.git
-cd book-store-distributed-sample
+```
+                     ┌─────────────────────────────────────────────────────────┐
+                     │                      FRONTEND                           │
+                     └─────────────┬─────────────────┬─────────────────┬───────┘
+                                   │                 │                 │
+            /api/v1/auth/*         │                 │                 │ /api/v1/cart
+                                   ▼                 │                 │ /api/v1/orders
+                             [auth-service]          │                 ▼
+                                   ▲                 │           [backend monolith]
+                                   │                 │                 │
+                GET /auth/validate │                 │                 │ 1. GET /auth/validate
+         (Xác thực Token & Admin) │                 │                 │    (Xác thực user)
+                                   │                 │                 │ 2. GET /internal/v1/users
+                                   │                 │                 │    (Tra cứu user đơn hàng)
+                                   │                 │                 ▼
+                             [product-service] ◄─────┴─────── POST /internal/v1/stock/reserve
+                       (Sách, Tìm kiếm, Flash Sale)       (Trừ kho với x-internal-key)
+                                                                       │
+                                                                       │ Publish event
+                                                                       ▼
+                                                                 [RabbitMQ Queue]
+                                                                       │
+                                                                       │ Consume
+                                                                       ▼
+                                                             [notification-service]
+                                                                 (Gửi email)
 ```
 
-### 2. Cài đặt Backend
-```bash
-cd backend
-npm install
-```
+1. **Ủy quyền xác thực (Authentication Delegation):** Cả `backend` và `product-service` không tự xác thực mật khẩu hay truy vấn DB users. Middleware `auth.middleware.js` gửi request `GET /api/v1/auth/validate` kèm header `Authorization: Bearer <token>` sang `auth-service`.
+2. **Khóa an toàn nội bộ (Internal Secrets):** Các endpoint nhạy cảm như điều chỉnh tồn kho (`/internal/v1/stock/*`) và lấy thông tin user hàng loạt (`/internal/v1/users`) được bảo vệ nghiêm ngặt bằng secret header (`x-internal-key`).
+3. **Event-driven Notifications:** Sau khi đơn hàng được tạo hoặc cập nhật trạng thái, `backend` gửi tin nhắn bất đồng bộ vào RabbitMQ Exchange. `notification-service` tiêu thụ sự kiện và gửi email mà không làm chậm thời gian phản hồi của API đặt hàng.
 
-Tạo file `.env` (dựa trên `sample.env`):
-```bash
-cp sample.env .env
-```
+---
 
-Chỉnh sửa `.env`:
+## 🚀 Hướng dẫn chạy cục bộ (Local Development)
+
+### Yêu cầu tiên quyết
+- **Node.js** >= 20.x
+- **Docker** & **Docker Compose** (dùng cho Meilisearch, RabbitMQ và Auth Service cục bộ)
+- Cụm **MongoDB Atlas** (hoặc MongoDB Local)
+
+### 1. Khởi động các dịch vụ phụ trợ với Docker
+Tại thư mục gốc dự án:
+```bash
+# Khởi chạy Meilisearch (port 7700) và RabbitMQ (port 5672, UI 15672)
+docker compose up -d meilisearch
+```
+*(Nếu cần RabbitMQ local: `docker run -d --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:3-management`)*
+
+---
+
+### 2. Cấu hình biến môi trường (`.env`)
+
+Tạo file `.env` cho từng dịch vụ dựa trên các file `sample.env` có sẵn:
+
+#### A. `auth-service/.env` (Cổng 5003)
 ```env
-NODE_ENV=development
-PORT=5001
-MONGO_URI=mongodb+srv://<username>:<password>@cluster0.xxxx.mongodb.net/bookstore
+PORT=5003
+MONGO_URI=mongodb+srv://<user>:<pass>@cluster0.xxxxx.mongodb.net/bookstore_auth
 CLIENT_URL=http://localhost:5173
-
-JWT_ACCESS_SECRET=<chuỗi_bí_mật_dài_ngẫu_nhiên>
-JWT_REFRESH_SECRET=<chuỗi_bí_mật_khác>
+JWT_ACCESS_SECRET=your_jwt_access_secret_32bytes_hex
+JWT_REFRESH_SECRET=your_jwt_refresh_secret_32bytes_hex
 JWT_ACCESS_EXPIRES=15m
 JWT_REFRESH_EXPIRES=7d
-
-# Email — để trống để dùng Ethereal (test) trong dev
-# Xem log console để lấy link preview email khi đăng ký
-EMAIL_HOST=
+EMAIL_HOST=smtp.gmail.com
 EMAIL_PORT=587
 EMAIL_SECURE=false
-EMAIL_USER=
-EMAIL_PASS=
-EMAIL_FROM=noreply@bookstore.dev
+EMAIL_USER=your_email@gmail.com
+EMAIL_PASS=your_gmail_app_password
+EMAIL_FROM=BookStore <your_email@gmail.com>
+AUTH_INTERNAL_SECRET=your_shared_auth_internal_secret
 ```
 
-> **Lưu ý khi dev**: Khi `EMAIL_HOST` để trống, backend tự tạo [Ethereal](https://ethereal.email) account và in preview URL vào console:
-> ```
-> 📧 Email preview URL: https://ethereal.email/message/xxxxx
-> ```
-> Mở URL đó để xem email và lấy link xác nhận.
-
-Khởi tạo dữ liệu mẫu (tùy chọn):
-```bash
-npm run seed
+#### B. `product-service/.env` (Cổng 5002)
+```env
+PORT=5002
+MONGO_URI=mongodb+srv://<user>:<pass>@cluster0.xxxxx.mongodb.net/bookstore_products
+CLIENT_URL=http://localhost:5173
+AUTH_SERVICE_URL=http://localhost:5003
+MEILI_HOST=http://127.0.0.1:7700
+MEILI_MASTER_KEY=dev_master_key_change_me
+MEILI_INDEX=books
+REDIS_URL=rediss://default:<pass>@<host>.upstash.io:6379  # Để trống nếu không dùng Redis cache
+PRODUCT_INTERNAL_SECRET=your_shared_product_internal_secret
 ```
 
-Chạy server:
-```bash
-npm run dev       # Chạy với nodemon (hot-reload)
-# → http://localhost:5001
+#### C. `backend/.env` (Cổng 5001)
+```env
+PORT=5001
+MONGO_URI=mongodb+srv://<user>:<pass>@cluster0.xxxxx.mongodb.net/bookstore
+CLIENT_URL=http://localhost:5173
+AUTH_SERVICE_URL=http://localhost:5003
+AUTH_INTERNAL_SECRET=your_shared_auth_internal_secret
+PRODUCT_SERVICE_URL=http://localhost:5002
+PRODUCT_INTERNAL_SECRET=your_shared_product_internal_secret
+RABBITMQ_URL=amqp://localhost:5672  # Hoặc URL CloudAMQP
 ```
 
-### 3. Cài đặt Frontend
-```bash
-# Mở terminal mới
-cd frontend
-npm install
-npm run dev
-# → http://localhost:5173
+#### D. `frontend/.env` (Cổng 5173)
+```env
+VITE_API_URL=http://localhost:5001/api/v1
+VITE_AUTH_API_URL=http://localhost:5003/api/v1
+VITE_CATALOG_API_URL=http://localhost:5002/api/v1
 ```
 
 ---
 
-## 🌐 CI/CD & Triển khai lên Google Cloud Run
+### 3. Đồng bộ và Di chuyển dữ liệu (Data Migration)
 
-Mỗi lần push code lên nhánh `main`, GitHub Actions sẽ tự động:
+Nếu bạn vừa tách service và cần sao chép dữ liệu từ database Monolith cũ sang các database microservice mới:
 
-1. **Test**: Kiểm tra build Frontend + xác thực Backend dependencies.
-2. **Deploy Backend**: Build Docker image → Push lên Artifact Registry → Deploy lên Cloud Run.
-3. **Deploy Frontend**: Build Vite (với URL Backend tự động) → Push → Deploy Cloud Run → Cập nhật CORS.
+```bash
+# 1. Di chuyển Users sang bookstore_auth:
+cd auth-service
+npm install
+npm run migrate
 
-### Sơ đồ pipeline
-
-```
-Push to main
-    │
-    ▼
-[test] Build check
-    │
-    ▼
-[deploy-backend] ──► Docker Build ──► Artifact Registry ──► Cloud Run
-    │                                                          │
-    │                                               backend_url (output)
-    ▼
-[deploy-frontend] ──► Docker Build (VITE_API_URL inject) ──► Cloud Run
-                                                                │
-                                              Update CLIENT_URL CORS on Backend
+# 2. Di chuyển Sách sang bookstore_products và đồng bộ Meilisearch:
+cd ../product-service
+npm install
+npm run migrate
 ```
 
-### Thiết lập GitHub Secrets
+---
 
-Vào **Settings → Secrets and variables → Actions** của repository và thêm:
+### 4. Khởi chạy toàn bộ hệ thống
+
+Mở các terminal riêng biệt để chạy từng service:
+
+```bash
+# Terminal 1: Auth Service
+cd auth-service && npm run dev          # http://localhost:5003
+
+# Terminal 2: Product Service
+cd product-service && npm run dev       # http://localhost:5002
+
+# Terminal 3: Core Backend Monolith
+cd backend && npm run dev               # http://localhost:5001
+
+# Terminal 4: Notification Service (Worker)
+cd notification-service && npm run dev
+
+# Terminal 5: Frontend UI
+cd frontend && npm run dev              # http://localhost:5173
+```
+
+---
+
+## 📡 Tổng hợp API Endpoints
+
+### 1. Auth Service (`:5003/api/v1`)
+| Phương thức | Đường dẫn | Chức năng | Phân quyền |
+|---|---|---|---|
+| `POST` | `/auth/register` | Đăng ký tài khoản & gửi email xác nhận | Public |
+| `GET` | `/auth/verify-email?token=` | Kích hoạt tài khoản từ liên kết email | Public |
+| `POST` | `/auth/login` | Đăng nhập (trả JWT & set refresh token cookie) | Public |
+| `POST` | `/auth/refresh` | Cấp mới access token từ cookie refresh | Cookie |
+| `POST` | `/auth/logout` | Đăng xuất và xóa cookie | Public |
+| `GET` | `/auth/me` | Lấy thông tin tài khoản hiện tại | 🔒 Bearer |
+| `PATCH` | `/auth/me` | Cập nhật thông tin profile/địa chỉ | 🔒 Bearer |
+| `GET` | `/auth/validate` | Endpoint cho service khác xác thực token | 🔒 Bearer |
+| `GET` | `/auth/users` | Danh sách tài khoản người dùng | 🔒 Admin |
+| `GET` | `/internal/v1/users/:id` | Lấy thông tin user nội bộ | 🔑 `x-internal-key` |
+| `POST` | `/internal/v1/users/batch` | Lấy nhiều user theo danh sách ID | 🔑 `x-internal-key` |
+
+### 2. Product Service (`:5002/api/v1`)
+| Phương thức | Đường dẫn | Chức năng | Phân quyền |
+|---|---|---|---|
+| `GET` | `/books` | Danh sách sách, lọc giá/danh mục, tìm kiếm full-text | Public |
+| `GET` | `/books/flash-sale` | Danh sách các sách đang Flash Sale (-50%) | Public |
+| `GET` | `/books/:id` | Chi tiết cuốn sách (Redis Cached) | Public |
+| `POST` | `/books` | Tạo sách mới (đồng bộ Meilisearch, xóa cache) | 🔒 Admin |
+| `PATCH` | `/books/:id` | Cập nhật thông tin / ảnh bìa / Flash Sale | 🔒 Admin |
+| `DELETE` | `/books/:id` | Xóa sách | 🔒 Admin |
+| `POST` | `/internal/v1/stock/reserve` | Giữ & trừ tồn kho khi tạo đơn hàng | 🔑 `x-internal-key` |
+| `POST` | `/internal/v1/stock/restore` | Hoàn trả tồn kho khi hủy đơn | 🔑 `x-internal-key` |
+
+### 3. Core Backend (`:5001/api/v1`)
+| Phương thức | Đường dẫn | Chức năng | Phân quyền |
+|---|---|---|---|
+| `GET` | `/cart` | Xem chi tiết giỏ hàng hiện tại | 🔒 User |
+| `POST` | `/cart` | Thêm sản phẩm vào giỏ | 🔒 User |
+| `PUT` | `/cart/:itemId` | Cập nhật số lượng sản phẩm | 🔒 User |
+| `DELETE` | `/cart/:itemId` | Xóa sản phẩm khỏi giỏ | 🔒 User |
+| `POST` | `/orders` | Đặt hàng (kiểm tra tồn kho, gửi event RabbitMQ) | 🔒 User |
+| `GET` | `/orders/my` | Lịch sử đơn hàng của tôi | 🔒 User |
+| `GET` | `/orders` | Danh sách toàn bộ đơn hàng | 🔒 Admin |
+| `PATCH` | `/orders/:id/status` | Cập nhật trạng thái xử lý đơn hàng | 🔒 Admin |
+| `GET` | `/notifications` | Danh sách thông báo in-app | 🔒 User |
+
+---
+
+## 🌐 CI/CD & Triển khai Google Cloud Run
+
+Pipeline tự động hóa hoàn toàn trên GitHub Actions qua file `.github/workflows/deploy.yml`:
+
+```
+                           git push origin main
+                                     │
+                                     ▼
+                          [test] Code Quality & Build
+                                     │
+              ┌──────────────────────┴──────────────────────┐
+              ▼                                             ▼
+     [deploy-auth]                                 [deploy-product]
+Build & Deploy Cloud Run                       Build & Deploy Cloud Run
+              │                                             │
+              └──────────────────────┬──────────────────────┘
+                                     ▼
+                              [deploy-backend]
+                           Build & Deploy Cloud Run
+                                     │
+                                     ▼
+                              [deploy-frontend]
+                      Build Vite với URL tự động inject
+                                     │
+                                     ▼
+                        Cập nhật CORS liên dịch vụ
+```
+
+### Danh sách GitHub Secrets cần cấu hình
+
+Vào **Settings → Secrets and variables → Actions** trên repository GitHub và cấu hình:
 
 | Secret | Mô tả |
 |---|---|
-| `GCP_PROJECT_ID` | Google Cloud Project ID |
-| `GCP_SA_KEY` | Nội dung JSON của Service Account Key |
-| `MONGO_URI` | Chuỗi kết nối MongoDB Atlas |
-| `JWT_ACCESS_SECRET` | Secret cho Access Token |
-| `JWT_REFRESH_SECRET` | Secret cho Refresh Token |
-| `EMAIL_HOST` | SMTP host (vd: `smtp.resend.com`) |
-| `EMAIL_PORT` | SMTP port (vd: `587`) |
-| `EMAIL_SECURE` | `false` cho TLS thường, `true` cho SSL |
-| `EMAIL_USER` | SMTP username (vd: `resend`) |
-| `EMAIL_PASS` | SMTP password / API Key |
-| `EMAIL_FROM` | Địa chỉ gửi email (vd: `noreply@yourdomain.com`) |
-
-> **Dịch vụ email miễn phí khuyến nghị cho production**: [Resend](https://resend.com) — 3,000 email/tháng, không cần credit card.
-> ```
-> EMAIL_HOST=smtp.resend.com
-> EMAIL_PORT=587
-> EMAIL_SECURE=false
-> EMAIL_USER=resend
-> EMAIL_PASS=re_xxxxxxxxxxxxxxxxxxxx   ← API Key từ resend.com
-> EMAIL_FROM=onboarding@resend.dev      ← hoặc noreply@yourdomain.com sau khi verify domain
-> ```
-
-### Cấu hình tối ưu Free Tier
-
-| Thông số | Backend | Frontend |
-|---|---|---|
-| Min instances | 0 (scale to zero) | 0 (scale to zero) |
-| Max instances | 2 | 2 |
-| Memory | 512Mi | 256Mi |
-| Region | us-central1 | us-central1 |
-
-> **Free Tier của Cloud Run**: 2 triệu request/tháng miễn phí. Scale về 0 khi không có traffic → chi phí = $0 khi hệ thống nhàn rỗi.
+| `GCP_PROJECT_ID` | Google Cloud Project ID (vd: `github-cursor-ana`) |
+| `GCP_SA_KEY` | Khóa JSON Service Account có quyền deploy Cloud Run & Artifact Registry |
+| `AUTH_MONGO_URI` | MongoDB Connection String trỏ tới DB `bookstore_auth` |
+| `PRODUCT_MONGO_URI` | MongoDB Connection String trỏ tới DB `bookstore_products` |
+| `MONGO_URI` | MongoDB Connection String trỏ tới DB `bookstore` (Monolith) |
+| `JWT_ACCESS_SECRET` | Secret mã hóa Access Token (dùng chung giữa auth và các service) |
+| `JWT_REFRESH_SECRET` | Secret mã hóa Refresh Token |
+| `AUTH_INTERNAL_SECRET` | Khóa bí mật giao tiếp nội bộ giữa Backend Monolith và Auth Service |
+| `PRODUCT_INTERNAL_SECRET`| Khóa bí mật giao tiếp nội bộ giữa Backend Monolith và Product Service |
+| `MEILI_HOST` | URL máy chủ Meilisearch (vd: `http://<VM_IP>:7700`) |
+| `MEILI_MASTER_KEY` | Master key của Meilisearch |
+| `REDIS_URL` | Upstash Redis TLS URL (`rediss://...`) |
+| `RABBITMQ_URL` | URL kết nối CloudAMQP (`amqps://...`) |
+| `EMAIL_HOST` | SMTP Host (vd: `smtp.gmail.com` hoặc `smtp.resend.com`) |
+| `EMAIL_PORT` | SMTP Port (`587`) |
+| `EMAIL_SECURE` | `false` |
+| `EMAIL_USER` | Email gửi (vd: Gmail hoặc `resend`) |
+| `EMAIL_PASS` | Gmail App Password hoặc API Key Resend |
+| `EMAIL_FROM` | Tên người gửi hiển thị (vd: `BookStore <your_email@gmail.com>`) |
 
 ---
 
-## 📡 API Endpoints
+## 📄 Bản quyền (License)
 
-- **Backend Monolith**: `http://localhost:5001/api/v1` (Cart, Orders, Notifications)
-- **Auth Service**: `http://localhost:5003/api/v1` (Register, Login, Refresh, Me, Validate)
-- **Product Service**: `http://localhost:5002/api/v1` (Books, Search, Stock)
-
-### Auth (`auth-service`)
-| Method | Endpoint | Mô tả | Auth |
-|---|---|---|---|
-| `POST` | `/auth/register` | Đăng ký — gửi email xác nhận | ❌ |
-| `POST` | `/auth/login` | Đăng nhập (yêu cầu email đã xác nhận) | ❌ |
-| `POST` | `/auth/refresh` | Gia hạn Access Token | Cookie |
-| `POST` | `/auth/logout` | Đăng xuất | Cookie |
-| `GET` | `/auth/verify-email?token=` | Xác nhận email từ link | ❌ |
-| `GET` | `/auth/me` | Lấy thông tin user hiện tại | 🔒 Bearer |
-| `PATCH`| `/auth/me` | Cập nhật thông tin profile/địa chỉ | 🔒 Bearer |
-| `GET` | `/auth/validate` | Xác thực token (dành cho các service khác) | 🔒 Bearer |
-| `GET` | `/auth/users` | Danh sách người dùng | 🔒 Admin |
-
-### Books
-| Method | Endpoint | Mô tả | Auth |
-|---|---|---|---|
-| `GET` | `/books` | Danh sách sách (phân trang, tìm kiếm, lọc, `?flashSale=true`) | ❌ |
-| `GET` | `/books/flash-sale` | Danh sách sách đang Flash Sale | ❌ |
-| `GET` | `/books/:id` | Chi tiết sách | ❌ |
-| `POST` | `/books` | Thêm sách mới | 🔒 Admin |
-| `PATCH` | `/books/:id` | Cập nhật thông tin sách (bao gồm ảnh bìa, Flash Sale) | 🔒 Admin |
-| `PUT` | `/books/:id` | Cập nhật sách (full replace) | 🔒 Admin |
-| `PATCH` | `/books/:id/flash-sale` | Bật / tắt Flash Sale cho sách | 🔒 Admin |
-| `DELETE` | `/books/:id` | Xóa sách | 🔒 Admin |
-
-#### Query params cho `GET /books`
-| Param | Kiểu | Mô tả |
-|---|---|---|
-| `search` | string | Tìm theo tên hoặc tác giả |
-| `category` | string | Lọc theo danh mục |
-| `minPrice` / `maxPrice` | number | Khoảng giá |
-| `sort` | string | Sắp xếp (vd: `-price`, `title`, `-createdAt`) |
-| `page` / `limit` | number | Phân trang (limit tối đa 50) |
-| `flashSale` | `true` | Chỉ trả về sách đang trong kỳ Flash Sale |
-
-#### Body cho `PATCH /books/:id/flash-sale`
-```json
-{
-  "isFlashSale": true,
-  "discountPercent": 50,
-  "durationHours": 24,
-  "endDate": "2026-10-05T00:00:00Z"
-}
-```
-
-### Cart
-| Method | Endpoint | Mô tả | Auth |
-|---|---|---|---|
-| `GET` | `/cart` | Xem giỏ hàng | 🔒 User |
-| `POST` | `/cart` | Thêm vào giỏ | 🔒 User |
-| `PUT` | `/cart/:itemId` | Cập nhật số lượng | 🔒 User |
-| `DELETE` | `/cart/:itemId` | Xóa sản phẩm | 🔒 User |
-
-### Orders
-| Method | Endpoint | Mô tả | Auth |
-|---|---|---|---|
-| `POST` | `/orders` | Tạo đơn hàng | 🔒 User |
-| `GET` | `/orders/my` | Đơn hàng của tôi | 🔒 User |
-| `GET` | `/orders` | Tất cả đơn hàng | 🔒 Admin |
-| `PATCH` | `/orders/:id/status` | Cập nhật trạng thái | 🔒 Admin |
-
----
-
-## 🔧 Scripts
-
-### Backend
-```bash
-npm run dev          # Chạy development (nodemon)
-npm run start        # Chạy production
-npm run seed         # Nhập dữ liệu mẫu
-npm run seed:destroy # Xóa toàn bộ dữ liệu mẫu
-```
-
-### Frontend
-```bash
-npm run dev          # Chạy development server
-npm run build        # Build production
-npm run preview      # Preview bản build
-npm run lint         # Kiểm tra lỗi ESLint
-```
-
----
-
-## 📄 License
-
-MIT © 2026 — [nguyenson2012](https://github.com/nguyenson2012)
+Dự án phát hành theo giấy phép MIT © 2026 — [nguyenson2012](https://github.com/nguyenson2012).

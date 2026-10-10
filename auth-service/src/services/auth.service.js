@@ -13,7 +13,17 @@ export const registerUser = async ({ name, email, password }, clientUrl) => {
   await user.save({ validateBeforeSave: false });
 
   const verifyUrl = `${clientUrl}/verify-email?token=${rawToken}`;
-  await sendVerificationEmail(email, verifyUrl);
+  try {
+    await sendVerificationEmail(email, verifyUrl);
+  } catch (err) {
+    // Xoá user vừa tạo để tránh kẹt tài khoản chưa verify khi gửi email lỗi
+    await User.findByIdAndDelete(user._id);
+    console.error('❌ Lỗi gửi email xác nhận:', err.message);
+    throw new AppError(
+      `Không thể gửi email xác nhận: ${err.message}`,
+      500
+    );
+  }
 
   return user;
 };
