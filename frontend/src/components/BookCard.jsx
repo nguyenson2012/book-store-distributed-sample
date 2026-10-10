@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { addToCart } from '../store/cartSlice';
 import { formatPrice, isBookFlashSaleActive, getBookFinalPrice } from '../utils/helpers';
+import { prefetchBook } from '../services/catalogPrefetch';
 
 // Ảnh bìa: dùng URL nếu có, fallback sang khung màu nếu ảnh lỗi hoặc không có URL
 export function Cover({ book, className = '' }) {
@@ -26,6 +27,8 @@ export function Cover({ book, className = '' }) {
       <img
         src={book.coverImage}
         alt={book.title || 'Bìa sách'}
+        loading="lazy"
+        decoding="async"
         onError={() => setHasError(true)}
         className={`object-cover ${className}`}
       />
@@ -62,7 +65,11 @@ export default function BookCard({ book }) {
   const finalPrice = getBookFinalPrice(book);
 
   return (
-    <div className={`card relative flex flex-col overflow-hidden !p-0 transition hover:shadow-md ${isFlash ? 'ring-2 ring-rose-500/80 shadow-rose-100' : ''}`}>
+    <div
+      onMouseEnter={() => prefetchBook(book?._id, book?.coverImage)}
+      onTouchStart={() => prefetchBook(book?._id, book?.coverImage)}
+      className={`card relative flex flex-col overflow-hidden !p-0 transition hover:shadow-md ${isFlash ? 'ring-2 ring-rose-500/80 shadow-rose-100' : ''}`}
+    >
       {/* Badge Flash Sale */}
       {isFlash && (
         <div className="absolute left-2 top-2 z-10 flex items-center gap-1 rounded-md bg-gradient-to-r from-amber-500 to-rose-600 px-2.5 py-1 text-xs font-black uppercase text-white shadow-md">

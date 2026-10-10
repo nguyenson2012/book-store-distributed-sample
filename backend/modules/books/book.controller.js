@@ -28,6 +28,8 @@ const proxyPublic = async (req, res, path) => {
     });
 
     if (upstream.ok) {
+      const cc = upstream.headers.get('cache-control');
+      if (cc) res.set('Cache-Control', cc);
       const body = await upstream.json();
       res.status(upstream.status).json(body);
       return true;
@@ -81,6 +83,7 @@ export const getFlashSaleBooks = catchAsync(async (req, res) => {
     ],
   }).sort({ flashSaleEndDate: 1 });
 
+  res.set('Cache-Control', 'public, max-age=15, stale-while-revalidate=30');
   res.json({ status: 'success', results: books.length, data: { books } });
 });
 
@@ -126,6 +129,7 @@ export const getAllBooks = catchAsync(async (req, res) => {
     Book.countDocuments(filter),
   ]);
 
+  res.set('Cache-Control', 'public, max-age=15, stale-while-revalidate=60');
   res.json({
     status: 'success',
     results: books.length,
@@ -142,6 +146,7 @@ export const getBook = catchAsync(async (req, res) => {
 
   const book = await Book.findById(req.params.id);
   if (!book) throw new AppError('Không tìm thấy sách', 404);
+  res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
   res.json({ status: 'success', data: { book } });
 });
 
