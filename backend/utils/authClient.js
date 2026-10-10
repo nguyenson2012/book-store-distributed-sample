@@ -1,4 +1,5 @@
 import AppError from './AppError.js';
+import tokenCache from './tokenCache.js';
 
 // Client gọi Auth Service (nguồn duy nhất của dữ liệu user). Bắt buộc có AUTH_SERVICE_URL.
 const base = () => {
@@ -12,10 +13,18 @@ const unavailable = () => new AppError('Dịch vụ xác thực tạm thời kh�
 
 /** Xác thực Bearer token qua GET /api/v1/auth/validate → { id, role, email, name } */
 export const validateToken = async (token) => {
+  // 1. Kiểm tra In-Memory Token Cache trước (phản hồi < 0.1ms)
+  const cached = tokenCache.get(token);
+  if (cached) return cached;
+
+  // 2. Cache miss: Gọi Auth Service
   let res;
   try {
     res = await fetch(`${base()}/api/v1/auth/validate`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Connection: 'keep-alive',
+      },
       signal: AbortSignal.timeout(5000),
     });
   } catch (err) {
@@ -28,6 +37,11 @@ export const validateToken = async (token) => {
   }
   if (!res.ok) throw unavailable();
   const { data } = await res.json();
+
+  // 3. Lưu vào cache trong 30 giây
+  if (data?.user) {
+    tokenCache.set(token, data.user);
+  }
   return data.user;
 };
 

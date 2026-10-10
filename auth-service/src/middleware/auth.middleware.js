@@ -3,6 +3,10 @@ import AppError from '../utils/AppError.js';
 import catchAsync from '../utils/catchAsync.js';
 import { verifyAccessToken } from '../utils/jwt.js';
 
+// In-memory cache cho user lookup (TTL 60s) để tránh query MongoDB Atlas lặp lại khi validate token
+const userMemoryCache = new Map();
+const USER_CACHE_TTL = 60 * 1000;
+
 // Xác thực: đọc "Authorization: Bearer <token>", gắn user vào req
 export const protect = catchAsync(async (req, res, next) => {
   const header = req.headers.authorization;
@@ -10,8 +14,26 @@ export const protect = catchAsync(async (req, res, next) => {
   if (!token) throw new AppError('Bạn chưa đăng nhập', 401);
 
   const { id } = verifyAccessToken(token); // lỗi JWT sẽ được errorHandler xử lý
+
+  // Kiểm tra cache trong RAM trước (thời gian < 0.1ms)
+  const cached = userMemoryCache.get(id);
+  if (cached && Date.now() < cached.expiresAt) {
+    req.user = cached.user;
+    return next();
+  }
+
   const user = await User.findById(id);
   if (!user) throw new AppError('Người dùng không còn tồn tại', 401);
+
+  // Lưu vào cache
+  if (userMemoryCache.size >= 5000) {
+    const oldest = userMemoryCache.keys().next().value;
+    if (oldest) userMemoryCache.delete(oldest);
+  }
+  userMemoryCache.set(id, {
+    user,
+    expiresAt: Date.now() + USER_CACHE_TTL,
+  });
 
   req.user = user;
   next();

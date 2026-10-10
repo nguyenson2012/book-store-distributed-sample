@@ -12,7 +12,9 @@ try {
   };
 }
 
+const AUTH_URL = config.authServiceUrl || 'http://localhost:5003';
 const BACKEND_URL = config.backendUrl || 'http://localhost:5001';
+const BOOK_ID = config.testBookId || '';
 const TOKEN = config.customerToken || '';
 
 const eventDispatchDuration = new Trend('duration_event_dispatch');
@@ -29,7 +31,23 @@ export const options = {
   },
 };
 
-export default function () {
+// Đăng nhập lấy token tươi mới trước khi test chạy
+export function setup() {
+  const loginRes = http.post(
+    `${AUTH_URL}/api/v1/auth/login`,
+    JSON.stringify({ email: 'customer@bookstore.com', password: 'Customer@123' }),
+    { headers: { 'Content-Type': 'application/json' } }
+  );
+  let token = TOKEN;
+  try {
+    const json = loginRes.json();
+    if (json.accessToken) token = json.accessToken;
+  } catch (e) {}
+  return { token };
+}
+
+export default function (data) {
+  const token = data?.token || TOKEN;
   const payload = JSON.stringify({
     shippingAddress: {
       fullName: 'RabbitMQ Stress Test User',
@@ -42,7 +60,7 @@ export default function () {
 
   const params = {
     headers: {
-      Authorization: `Bearer ${TOKEN}`,
+      Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
   };

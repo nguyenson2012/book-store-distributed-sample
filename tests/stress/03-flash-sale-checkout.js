@@ -13,7 +13,9 @@ try {
   };
 }
 
+const AUTH_URL = config.authServiceUrl || 'http://localhost:5003';
 const BACKEND_URL = config.backendUrl || 'http://localhost:5001';
+const BOOK_ID = config.testBookId || '';
 const TOKEN = config.customerToken || '';
 
 // Custom counters để đếm kết quả đặt hàng đồng thời
@@ -22,7 +24,7 @@ const outOfStockErrors = new Counter('orders_out_of_stock_400');
 const orderDuration = new Trend('duration_order_checkout');
 
 export const options = {
-  // Chạy 50 iterations phân bổ đều cho 30 VUs trong cùng một đợt tức thì (Spike / Burst)
+  // Chạy 30 VUs trong cùng một đợt tức thì (Spike / Burst)
   scenarios: {
     flash_sale_burst: {
       executor: 'per-vu-iterations',
@@ -32,12 +34,37 @@ export const options = {
     },
   },
   thresholds: {
-    // Thời gian xử lý đặt hàng không được quá 1500ms dù hàng chục người tranh mua
     duration_order_checkout: ['p(95)<1500'],
   },
 };
 
-export default function () {
+// Chuẩn bị token và giỏ hàng tươi mới ngay trước khi test chạy
+export function setup() {
+  const loginRes = http.post(
+    `${AUTH_URL}/api/v1/auth/login`,
+    JSON.stringify({ email: 'customer@bookstore.com', password: 'Customer@123' }),
+    { headers: { 'Content-Type': 'application/json' } }
+  );
+  let token = TOKEN;
+  try {
+    const json = loginRes.json();
+    if (json.accessToken) token = json.accessToken;
+  } catch (e) {}
+
+  // Đảm bảo sách có trong giỏ hàng trước khi burst
+  if (BOOK_ID && token) {
+    http.post(
+      `${BACKEND_URL}/api/v1/cart`,
+      JSON.stringify({ bookId: BOOK_ID, quantity: 1 }),
+      { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+    );
+  }
+
+  return { token };
+}
+
+export default function (data) {
+  const token = data?.token || TOKEN;
   const payload = JSON.stringify({
     shippingAddress: {
       fullName: 'Khách hàng Test Flash Sale',
@@ -50,7 +77,7 @@ export default function () {
 
   const params = {
     headers: {
-      Authorization: `Bearer ${TOKEN}`,
+      Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
   };
