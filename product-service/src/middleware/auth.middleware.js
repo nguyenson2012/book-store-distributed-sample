@@ -3,16 +3,30 @@ import catchAsync from '../utils/catchAsync.js';
 
 const AUTH_SERVICE_URL = (process.env.AUTH_SERVICE_URL || 'http://localhost:5003').replace(/\/$/, '');
 
+// In-memory cache cho token đã validate (TTL 30s)
+const tokenCache = new Map();
+const TOKEN_CACHE_TTL = 30 * 1000;
+
 // Xác thực qua auth-service: GET /api/v1/auth/validate với cùng Bearer token
 export const protect = catchAsync(async (req, res, next) => {
   const header = req.headers.authorization;
   const token = header?.startsWith('Bearer ') ? header.split(' ')[1] : null;
   if (!token) throw new AppError('Bạn chưa đăng nhập', 401);
 
+  // 1. Kiểm tra RAM cache trước (< 0.1ms)
+  const cached = tokenCache.get(token);
+  if (cached && Date.now() < cached.expiresAt) {
+    req.user = cached.user;
+    return next();
+  }
+
   let response;
   try {
     response = await fetch(`${AUTH_SERVICE_URL}/api/v1/auth/validate`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Connection: 'keep-alive',
+      },
       signal: AbortSignal.timeout(5000),
     });
   } catch (err) {
@@ -26,7 +40,16 @@ export const protect = catchAsync(async (req, res, next) => {
   if (!response.ok) throw new AppError('Dịch vụ xác thực tạm thời không khả dụng', 503);
 
   const { data } = await response.json();
-  req.user = { id: data.user.id, role: data.user.role };
+  const user = { id: data.user.id, role: data.user.role };
+
+  // 2. Lưu cache trong 30s
+  if (tokenCache.size >= 5000) {
+    const oldest = tokenCache.keys().next().value;
+    if (oldest) tokenCache.delete(oldest);
+  }
+  tokenCache.set(token, { user, expiresAt: Date.now() + TOKEN_CACHE_TTL });
+
+  req.user = user;
   next();
 });
 

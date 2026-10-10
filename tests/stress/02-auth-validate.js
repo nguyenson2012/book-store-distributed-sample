@@ -34,9 +34,25 @@ export const options = {
   },
 };
 
-export default function () {
+// Tự động đăng nhập lấy token tươi mới trước khi test chạy để không bao giờ bị TokenExpiredError
+export function setup() {
+  const loginRes = http.post(
+    `${AUTH_URL}/api/v1/auth/login`,
+    JSON.stringify({ email: 'customer@bookstore.com', password: 'Customer@123' }),
+    { headers: { 'Content-Type': 'application/json' } }
+  );
+  try {
+    const json = loginRes.json();
+    return { token: json.accessToken || TOKEN };
+  } catch (e) {
+    return { token: TOKEN };
+  }
+}
+
+export default function (data) {
+  const token = data?.token || TOKEN;
   const authHeaders = {
-    Authorization: `Bearer ${TOKEN}`,
+    Authorization: `Bearer ${token}`,
     'Content-Type': 'application/json',
   };
 
