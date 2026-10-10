@@ -3,19 +3,32 @@ import { Link, useParams } from 'react-router-dom';
 import { catalogApi } from '../services/api';
 import { Cover, useAddToCart } from '../components/BookCard';
 import { errMsg, formatPrice, isBookFlashSaleActive, getBookFinalPrice, getTimeLeft } from '../utils/helpers';
+import { getCachedBook, setCachedBook } from '../services/catalogPrefetch';
 
 export default function BookDetail() {
   const { id } = useParams();
-  const [book, setBook] = useState(null);
+  // Khởi tạo ngay lập tức từ prefetch cache nếu đã tải trước lúc hover
+  const [book, setBook] = useState(() => getCachedBook(id));
   const [error, setError] = useState('');
   const [qty, setQty] = useState(1);
   const [timeLeft, setTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0, isEnded: true });
   const { add, added } = useAddToCart();
 
   useEffect(() => {
+    const cached = getCachedBook(id);
+    if (cached) setBook(cached);
+
     catalogApi.get(`/books/${id}`)
-      .then(({ data }) => setBook(data.data.book))
-      .catch((e) => setError(errMsg(e)));
+      .then(({ data }) => {
+        const fresh = data.data?.book;
+        if (fresh) {
+          setBook(fresh);
+          setCachedBook(id, fresh);
+        }
+      })
+      .catch((e) => {
+        if (!cached) setError(errMsg(e));
+      });
   }, [id]);
 
   useEffect(() => {

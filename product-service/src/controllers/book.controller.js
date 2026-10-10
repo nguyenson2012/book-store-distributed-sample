@@ -41,6 +41,7 @@ const mongoFilter = ({ search, category, minPrice, maxPrice, flashSale }) => {
 };
 
 export const getFlashSaleBooks = catchAsync(async (req, res) => {
+  res.set('Cache-Control', 'public, max-age=15, stale-while-revalidate=30');
   const cacheKey = await listCacheKey('flash-sale');
   const cached = await cacheGet(cacheKey);
   if (cached) return res.json(cached);
@@ -66,6 +67,7 @@ export const getFlashSaleBooks = catchAsync(async (req, res) => {
 });
 
 export const getAllBooks = catchAsync(async (req, res) => {
+  res.set('Cache-Control', 'public, max-age=15, stale-while-revalidate=60');
   const { search, category, minPrice, maxPrice, sort, page = 1, flashSale } = req.query;
   const pageNum = Math.max(Number(page) || 1, 1);
   const limitNum = Math.min(Math.max(Number(req.query.limit) || 12, 1), 50);
@@ -119,6 +121,7 @@ export const getAllBooks = catchAsync(async (req, res) => {
 });
 
 export const getBook = catchAsync(async (req, res) => {
+  res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
   const cached = await cacheGet(bookCacheKey(req.params.id));
   if (cached) return res.json({ status: 'success', data: { book: cached } });
 

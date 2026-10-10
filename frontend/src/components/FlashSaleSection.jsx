@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { catalogApi } from '../services/api';
 import { Cover, useAddToCart } from './BookCard';
 import { formatPrice, getTimeLeft, isBookFlashSaleActive, getBookFinalPrice } from '../utils/helpers';
+import { prefetchBook } from '../services/catalogPrefetch';
 
 export default function FlashSaleSection() {
   const [books, setBooks] = useState([]);
@@ -114,6 +115,8 @@ export default function FlashSaleSection() {
           return (
             <div
               key={book._id}
+              onMouseEnter={() => prefetchBook(book._id, book.coverImage)}
+              onTouchStart={() => prefetchBook(book._id, book.coverImage)}
               className="group flex flex-col overflow-hidden rounded-xl bg-white text-slate-900 shadow-md transition-all duration-200 hover:-translate-y-1 hover:shadow-xl"
             >
               {/* Ảnh bìa + Nhãn 50% */}
