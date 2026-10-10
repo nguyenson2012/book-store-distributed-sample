@@ -222,7 +222,7 @@ jobs:
   # =========================================================================
   deploy-frontend:
     name: Build & Deploy Frontend
-    needs: [deploy-backend, deploy-auth]
+    needs: [deploy-backend, deploy-auth, deploy-product]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -244,14 +244,17 @@ jobs:
         env:
           BACKEND_URL: ${{ needs.deploy-backend.outputs.backend_url }}
           AUTH_URL: ${{ needs.deploy-auth.outputs.auth_url }}
+          PRODUCT_URL: ${{ needs.deploy-product.outputs.product_url }}
         run: |
           IMAGE_TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/frontend:${{ github.sha }}"
           LATEST_TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/frontend:latest"
           
-          # Inject BACKEND_URL vào Vite build arg
+          # Inject URLs vào Vite build arg (Frontend gọi trực tiếp Product Service để tải sách nhanh)
           docker build \
             --build-arg VITE_API_URL="${BACKEND_URL}/api/v1" \
             --build-arg VITE_AUTH_API_URL="${AUTH_URL}/api/v1" \
+            --build-arg VITE_PRODUCT_API_URL="${PRODUCT_URL}/api/v1" \
+            --build-arg VITE_PRODUCT_TRAFFIC_PERCENT="100" \
             -t "$IMAGE_TAG" \
             -t "$LATEST_TAG" \
             ./frontend
@@ -285,5 +288,10 @@ jobs:
 
           # Auth Service cũng cần CORS + link xác nhận email trỏ về Frontend
           gcloud run services update bookstore-auth \
+            --region ${{ env.REGION }} \
+            --update-env-vars CLIENT_URL="$FRONTEND_URL"
+
+          # Product Service cũng cần CORS để Frontend gọi trực tiếp lấy sách
+          gcloud run services update bookstore-product \
             --region ${{ env.REGION }} \
             --update-env-vars CLIENT_URL="$FRONTEND_URL"
