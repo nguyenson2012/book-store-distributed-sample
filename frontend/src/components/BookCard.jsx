@@ -6,7 +6,7 @@ import { formatPrice, isBookFlashSaleActive, getBookFinalPrice } from '../utils/
 import { prefetchBook } from '../services/catalogPrefetch';
 
 // Ảnh bìa: dùng URL nếu có, fallback sang khung màu nếu ảnh lỗi hoặc không có URL
-export function Cover({ book, className = '' }) {
+export function Cover({ book, className = '', priority = false }) {
   const [hasError, setHasError] = useState(false);
 
   useEffect(() => {
@@ -27,8 +27,9 @@ export function Cover({ book, className = '' }) {
       <img
         src={book.coverImage}
         alt={book.title || 'Bìa sách'}
-        loading="lazy"
+        loading={priority ? 'eager' : 'lazy'}
         decoding="async"
+        fetchPriority={priority ? 'high' : 'auto'}
         onError={() => setHasError(true)}
         className={`object-cover ${className}`}
       />
