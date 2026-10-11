@@ -75,9 +75,63 @@ const useProductReads = () => {
   return stickyBucket() < TRAFFIC_PERCENT;
 };
 
-/** Đọc catalog: canary 0→100% sang Product Service */
+// ─── Client-side In-Memory Cache (TTL 30s) ─────────────────────────────
+const clientCatalogCache = new Map();
+const CLIENT_CACHE_TTL = 30 * 1000;
+
+export const clearClientCatalogCache = () => {
+  clientCatalogCache.clear();
+};
+
+const makeCacheKey = (url, params) => {
+  if (!params) return url;
+  try {
+    const sorted = Object.entries(params).sort(([a], [b]) => a.localeCompare(b));
+    return `${url}?${new URLSearchParams(sorted).toString()}`;
+  } catch {
+    return url;
+  }
+};
+
+// Tự động xoá cache client khi có thao tác ghi (Admin thêm/sửa/xoá sách)
+const invalidateOnWrite = (instance) => {
+  if (!instance) return;
+  instance.interceptors.response.use((res) => {
+    const method = res.config?.method?.toLowerCase();
+    if (['post', 'patch', 'put', 'delete'].includes(method)) {
+      clearClientCatalogCache();
+    }
+    return res;
+  });
+};
+invalidateOnWrite(api);
+if (productApi) invalidateOnWrite(productApi);
+
+/** Đọc catalog: canary 0→100% sang Product Service, hỗ trợ in-memory cache 30s */
 export const catalogApi = {
-  get: (url, config) => (useProductReads() ? productApi : api).get(url, config),
+  get: async (url, config) => {
+    const key = makeCacheKey(url, config?.params);
+    const cached = clientCatalogCache.get(key);
+    if (cached && Date.now() < cached.expiresAt) {
+      return cached.response;
+    }
+
+    const client = useProductReads() ? productApi : api;
+    const response = await client.get(url, config);
+
+    if (response?.data?.status === 'success') {
+      if (clientCatalogCache.size >= 200) {
+        const oldest = clientCatalogCache.keys().next().value;
+        if (oldest) clientCatalogCache.delete(oldest);
+      }
+      clientCatalogCache.set(key, {
+        response,
+        expiresAt: Date.now() + CLIENT_CACHE_TTL,
+      });
+    }
+
+    return response;
+  },
 };
 
 /** Ghi catalog (admin): luôn Product Service nếu đã cấu hình */

@@ -79,7 +79,7 @@ export default function BookDetail() {
 
       <div className="card mt-4 grid gap-8 md:grid-cols-3">
         <div className="relative">
-          <Cover book={book} className="h-80 w-full rounded-lg" />
+          <Cover book={book} priority={true} className="h-80 w-full rounded-lg" />
           {isFlash && (
             <div className="absolute top-3 left-3 rounded-md bg-rose-600 px-3 py-1 text-xs font-black text-white shadow-md">
               ⚡ -50% SALE
